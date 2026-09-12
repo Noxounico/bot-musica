@@ -85,6 +85,7 @@ async function ensurePanel(channel) {
   const panel = mirror.panelMessage;
   await deleteStaleBotMessages(mirror.panelChannel, {
     keepId: panel?.id,
+    keepIds: [mirror.clipMessage?.id].filter(Boolean),
     botId: panel?.client?.user?.id || mirror.panelChannel?.client?.user?.id,
   });
   return panel;
@@ -133,15 +134,8 @@ async function runCommand(command, { member, reply, args, channel }) {
   }
 
   if (command === 'clipe') {
-    const track = mirror.current;
-    if (!track) {
-      await reply('Não há música a tocar. Usa `/play`.');
-      return;
-    }
-    const clip = track.youtubeUrl || (track.searchQuery
-      ? `https://www.youtube.com/results?search_query=${encodeURIComponent(track.searchQuery)}`
-      : track.externalUrl);
-    await reply(clip ? `🎬 **${track.title}**\n${clip}` : 'Sem clipe para esta faixa.');
+    const url = await mirror.showClip(channel || mirror.panelChannel);
+    await reply(`🎬 ${url}`);
     return;
   }
 
@@ -398,12 +392,11 @@ async function handlePanelButton(interaction) {
     }
 
     if (id === 'nox_clip') {
-      const track = mirror.current;
-      const clip = track?.youtubeUrl || track?.externalUrl;
-      await interaction.followUp({
-        content: clip ? `🎬 **${track.title}**\n${clip}` : 'Sem clipe. Usa `/play` primeiro.',
-        ephemeral: true,
-      });
+      try {
+        await mirror.showClip(interaction.channel || mirror.panelChannel);
+      } catch (error) {
+        await interaction.followUp({ content: error.message, ephemeral: true });
+      }
       return;
     }
 

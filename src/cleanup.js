@@ -16,8 +16,12 @@ function messageCustomIds(message) {
   return rows.flatMap((row) => (row.components || []).map((item) => item.customId || item.data?.custom_id));
 }
 
-function isStaleBotMessage(message, { keepId, botId } = {}) {
-  if (!message || message.id === keepId) {
+function keepSet({ keepId, keepIds } = {}) {
+  return new Set([keepId, ...(keepIds || [])].filter(Boolean));
+}
+
+function isStaleBotMessage(message, { keepId, keepIds, botId } = {}) {
+  if (!message || keepSet({ keepId, keepIds }).has(message.id)) {
     return false;
   }
   if (botId && message.author?.id && message.author.id !== botId) {
@@ -42,7 +46,7 @@ function isStaleBotMessage(message, { keepId, botId } = {}) {
   return /está pensando|a tocar|em pausa|ficou na fila|noxmusic|usa `?\/play/i.test(text);
 }
 
-async function deleteStaleBotMessages(channel, { keepId, botId, limit = 30 } = {}) {
+async function deleteStaleBotMessages(channel, { keepId, keepIds, botId, limit = 30 } = {}) {
   if (!channel?.messages?.fetch) {
     return 0;
   }
@@ -54,7 +58,7 @@ async function deleteStaleBotMessages(channel, { keepId, botId, limit = 30 } = {
 
   let deleted = 0;
   for (const message of fetched.values()) {
-    if (!isStaleBotMessage(message, { keepId, botId })) {
+    if (!isStaleBotMessage(message, { keepId, keepIds, botId })) {
       continue;
     }
     try {

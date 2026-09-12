@@ -3,6 +3,7 @@ const { VoiceMirrorPlayer } = require('./player');
 const { buildPanel } = require('./panel');
 const { extractYouTubeId, fetchOEmbed, watchUrl } = require('./youtube');
 const playlists = require('./playlists');
+const { resolveClipUrl, publishClip } = require('./clip');
 
 class SpotifyMirrorSync {
   constructor(config, deps = {}) {
@@ -21,6 +22,7 @@ class SpotifyMirrorSync {
     this.channelName = null;
     this.panelMessage = null;
     this.panelChannel = null;
+    this.clipMessage = null;
     this.onTrack = null;
     this.guildId = null;
     this.suggestions = [];
@@ -214,6 +216,9 @@ class SpotifyMirrorSync {
         youtubeUrl: track.youtubeUrl || null,
         progressMs: 0,
       });
+      if (this.player.lastYouTubeUrl) {
+        this.current.youtubeUrl = this.player.lastYouTubeUrl;
+      }
     } catch (error) {
       this.lastError = error.message;
       this.current = null;
@@ -227,6 +232,19 @@ class SpotifyMirrorSync {
     this.refreshSuggestions().catch((error) => {
       console.error('[sync] Suggestions failed:', error.message);
     });
+  }
+
+  async showClip(channel) {
+    const url = await resolveClipUrl(this.current);
+    if (!url) {
+      throw new Error('Não encontrei o clipe no YouTube. Tenta `/play` com o nome da música.');
+    }
+    if (this.current) {
+      this.current.youtubeUrl = url;
+    }
+    this.clipMessage = await publishClip(channel || this.panelChannel, url, this.clipMessage);
+    await this.refreshPanel();
+    return url;
   }
 
   async refreshSuggestions() {
