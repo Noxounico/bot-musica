@@ -1,4 +1,9 @@
-const SCOPES = ['user-read-playback-state', 'user-read-currently-playing'].join(' ');
+const SCOPES = [
+  'user-read-playback-state',
+  'user-read-currently-playing',
+  'user-modify-playback-state',
+  'user-read-private',
+].join(' ');
 
 function spotifyRedirectUri() {
   const configured = typeof process.env.SPOTIFY_REDIRECT_URI === 'string'
