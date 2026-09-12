@@ -62,9 +62,11 @@ npm start
 
 No Discord:
 
-- `!entrar` — entra no teu canal de voz e começa a espelhar o Spotify
-- `!sair` — para e sai do canal
-- `!status` — estado atual
+- `!entrar` ou `/entrar` — entra no teu canal de voz e começa a espelhar o Spotify
+- `!sair` ou `/sair` — para e sai do canal
+- `!status` ou `/status` — estado atual
+
+Para `!` funcionar, no Discord Developer Portal → Bot → liga **Message Content Intent**. Sem isso usa `/entrar`.
 
 ## Como funciona
 
