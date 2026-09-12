@@ -1,6 +1,7 @@
 const http = require('http');
 const { URL } = require('url');
 const config = require('./config');
+const { getRegistration, COMMAND_NAMES } = require('./commands');
 
 let server = null;
 
@@ -31,13 +32,19 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if (url.pathname === '/commands') {
+    send(res, 200, JSON.stringify(getRegistration(), null, 2), 'application/json; charset=utf-8');
+    return;
+  }
+
   if (url.pathname === '/spotify' || url.pathname === '/spotify/login' || url.pathname === '/callback') {
     const searchReady = Boolean(config.spotifyClientId && config.spotifyClientSecret);
     send(res, 200, page(
       'NoxMusic',
       `<h1>Já não precisas de login Spotify</h1>
        <p>O bot toca no Discord via YouTube. Não precisas de Premium, da app aberta, nem do scope <code>user-modify-playback-state</code>.</p>
-       <p>No Discord: entra num canal de voz e usa <code>/play nome da música</code>. Os botões ⏮ ▶/⏸ ⏭ controlam o bot, não o Spotify.</p>
+       <p>No Discord: entra num canal de voz e usa <code>/play</code> ou <code>/tocar</code> com o nome da música. Os botões ⏮ ▶/⏸ ⏭ controlam o bot, não o Spotify.</p>
+       <p>Comandos do NoxMusic: ${COMMAND_NAMES.map((name) => `<code>/${name}</code>`).join(' ')}</p>
        <p>Spotify Search (arte e título): ${searchReady ? 'Client ID/Secret ok' : 'opcional — o bot toca na mesma sem isto'}.</p>`,
     ));
     return;
