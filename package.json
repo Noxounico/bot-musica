@@ -4,9 +4,9 @@
   "description": "Discord bot that mirrors Spotify playback (AxeyBot-style)",
   "private": true,
   "type": "commonjs",
-  "main": "src/index.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node index.js",
     "auth:spotify": "node scripts/spotify-auth.js"
   },
   "engines": {

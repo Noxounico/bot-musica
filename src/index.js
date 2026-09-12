@@ -6,8 +6,21 @@ const {
   Routes,
   EmbedBuilder,
 } = require('discord.js');
+const { listenForPlatform } = require('./health');
 const config = require('./config');
+
+listenForPlatform();
+
 const { SpotifyMirrorSync } = require('./sync');
+
+console.log('[boot] env present', {
+  DISCORD_TOKEN: Boolean(config.discordToken),
+  DISCORD_CLIENT_ID: Boolean(config.discordClientId),
+  DISCORD_GUILD_ID: Boolean(config.discordGuildId),
+  SPOTIFY_CLIENT_ID: Boolean(config.spotifyClientId),
+  SPOTIFY_CLIENT_SECRET: Boolean(config.spotifyClientSecret),
+  SPOTIFY_REFRESH_TOKEN: Boolean(config.spotifyRefreshToken),
+});
 
 const mirror = new SpotifyMirrorSync(config);
 
@@ -24,6 +37,11 @@ const commands = [
 ].map((command) => command.toJSON());
 
 async function registerCommands(client) {
+  if (!config.discordClientId) {
+    console.error('[discord] DISCORD_CLIENT_ID (or CLIENT_ID) is not set; slash commands will not register.');
+    return;
+  }
+
   const rest = new REST({ version: '10' }).setToken(config.discordToken);
   const body = { body: commands };
 
@@ -123,10 +141,23 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-client.login(config.discordToken).catch((error) => {
-  console.error('[discord] Login failed:', error.message);
-  process.exit(1);
-});
+if (!config.discordToken) {
+  console.error('[discord] Missing DISCORD_TOKEN (or TOKEN). Set it in Railway Variables.');
+  if (!config.onRailway) {
+    process.exit(1);
+  }
+} else {
+  client.login(config.discordToken).catch((error) => {
+    console.error('[discord] Login failed:', error.message);
+    if (!config.onRailway) {
+      process.exit(1);
+    }
+  });
+}
+
+if (config.missingSpotify.length) {
+  console.error(`[spotify] Missing ${config.missingSpotify.join(', ')}. /entrar will fail until they are set.`);
+}
 
 process.on('SIGINT', () => {
   mirror.leave();
