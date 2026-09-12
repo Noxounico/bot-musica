@@ -9,10 +9,9 @@ const {
 const { listenForPlatform } = require('./health');
 const config = require('./config');
 const { parsePrefixCommand } = require('./prefix');
+const { SpotifyMirrorSync } = require('./sync');
 
 listenForPlatform();
-
-const { SpotifyMirrorSync } = require('./sync');
 
 console.log('[boot] env present', {
   DISCORD_TOKEN: Boolean(config.discordToken),
@@ -20,24 +19,35 @@ console.log('[boot] env present', {
   DISCORD_GUILD_ID: Boolean(config.discordGuildId),
   SPOTIFY_CLIENT_ID: Boolean(config.spotifyClientId),
   SPOTIFY_CLIENT_SECRET: Boolean(config.spotifyClientSecret),
-  SPOTIFY_REFRESH_TOKEN: Boolean(config.spotifyRefreshToken),
+  SPOTIFY_SEARCH: Boolean(config.spotifyClientId && config.spotifyClientSecret),
 });
 
 const mirror = new SpotifyMirrorSync(config);
 
+const COMMANDS = ['entrar', 'sair', 'status', 'painel', 'play'];
+
 const slashCommands = [
   new SlashCommandBuilder()
     .setName('entrar')
-    .setDescription('O bot entra no teu canal de voz e começa a espelhar o Spotify'),
+    .setDescription('Entra no teu canal de voz e mostra o painel do NoxMusic'),
   new SlashCommandBuilder()
     .setName('sair')
-    .setDescription('Para o espelhamento e sai do canal de voz'),
+    .setDescription('Sai do canal de voz'),
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Mostra o painel do Spotify'),
+    .setDescription('Mostra o painel de reprodução'),
   new SlashCommandBuilder()
     .setName('painel')
-    .setDescription('Volta a publicar o painel do Spotify com controlos'),
+    .setDescription('Volta a publicar o painel com controlos'),
+  new SlashCommandBuilder()
+    .setName('play')
+    .setDescription('Toca uma música no Discord. Não precisa do Spotify aberto.')
+    .addStringOption((option) =>
+      option
+        .setName('musica')
+        .setDescription('Nome da música, ou link do YouTube / Spotify')
+        .setRequired(true),
+    ),
 ].map((command) => command.toJSON());
 
 async function registerSlashCommands(client) {
@@ -64,55 +74,71 @@ async function registerSlashCommands(client) {
   }
 }
 
-async function runCommand(command, { member, reply }) {
+function accountLine(status) {
+  if (status.spotify) {
+    const label = status.spotify.isPlaying ? 'A tocar no Discord' : 'Em pausa';
+    return `${label}: **${status.spotify.artists} — ${status.spotify.title}**`;
+  }
+  return status.lastError || 'Usa `/play nome da música`. Não precisas do Spotify aberto nem de Premium.';
+}
+
+async function ensureJoined(member) {
+  const voiceChannel = member?.voice?.channel;
+  if (!voiceChannel) {
+    throw new Error('Entra num canal de voz primeiro, depois usa `/play` ou `/entrar`.');
+  }
+  if (!mirror.player.isConnected() || mirror.player.channelId !== voiceChannel.id) {
+    await mirror.join(voiceChannel);
+  }
+  return voiceChannel;
+}
+
+async function publishPanel(reply, content) {
+  const sent = await reply({
+    content,
+    ...mirror.panelPayload(),
+  });
+  if (sent) {
+    mirror.attachPanel(sent);
+  }
+  return sent;
+}
+
+async function runCommand(command, { member, reply, args }) {
   if (command === 'entrar') {
-    const voiceChannel = member?.voice?.channel;
-    if (!voiceChannel) {
-      await reply('Entra tu num canal de voz primeiro, depois escreve `!entrar` (ou `/entrar`).');
+    await ensureJoined(member);
+    await publishPanel(reply, accountLine(mirror.getStatus()));
+    return;
+  }
+
+  if (command === 'play') {
+    const query = String(args || '').trim();
+    if (!query) {
+      await reply('Diz o nome da música. Exemplo: `/play bohemian rhapsody`');
       return;
     }
 
-    await mirror.join(voiceChannel);
-    const status = mirror.getStatus();
-    if (status.spotify) {
-      setListeningActivity(status.spotify);
-    }
-
-    const sent = await reply({
-      content: accountLine(status),
-      ...mirror.panelPayload(),
+    await ensureJoined(member);
+    const result = await mirror.playQuery(query, {
+      displayName: member?.displayName || member?.user?.username,
+      imageUrl: member?.displayAvatarURL?.() || null,
     });
-    if (sent) {
-      mirror.attachPanel(sent);
-    }
+    const content = result.queued
+      ? `**${result.track.title}** ficou na fila (posição ${result.position}).`
+      : `A tocar **${result.track.title}**.`;
+    await publishPanel(reply, content);
     return;
   }
 
   if (command === 'sair') {
     mirror.leave();
-    await reply('Saí do canal de voz e fechei o painel do Spotify.');
+    await reply('Saí do canal de voz.');
     return;
   }
 
   if (command === 'status' || command === 'painel') {
-    const sent = await reply({
-      content: accountLine(mirror.getStatus()),
-      ...mirror.panelPayload(),
-    });
-    if (sent) {
-      mirror.attachPanel(sent);
-    }
+    await publishPanel(reply, accountLine(mirror.getStatus()));
   }
-}
-
-function accountLine(status) {
-  const name = status.account?.displayName;
-  if (status.spotify) {
-    return name
-      ? `**${name}** · ${status.spotify.artists} — ${status.spotify.title}`
-      : `${status.spotify.artists} — ${status.spotify.title}`;
-  }
-  return status.lastError || 'Painel Spotify. Abre o Spotify e mete uma música.';
 }
 
 const client = new Client({
@@ -136,8 +162,22 @@ mirror.onTrack = setListeningActivity;
 
 client.once('ready', async () => {
   console.log(`[discord] Logged in as ${client.user.tag}`);
+  if (config.spotifyClientId && config.spotifyClientSecret) {
+    console.log('[spotify] Search API ready (client_credentials). Sem Premium, sem app aberta.');
+  } else {
+    console.log('[spotify] Search opcional. Sem Client ID o bot toca na mesma via YouTube.');
+  }
   try {
     await registerSlashCommands(client);
+  } catch (error) {
+    console.error('[discord] Failed to register slash commands:', error.message);
+  }
+});
+
+client.on('guildCreate', async (guild) => {
+  try {
+    await registerSlashCommands(client);
+    console.log(`[discord] Registered commands for new guild ${guild.name}`);
   } catch (error) {
     console.error('[discord] Failed to register slash commands:', error.message);
   }
@@ -148,14 +188,15 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  const command = parsePrefixCommand(message.content);
-  if (!command || !['entrar', 'sair', 'status', 'painel'].includes(command)) {
+  const parsed = parsePrefixCommand(message.content);
+  if (!parsed || !COMMANDS.includes(parsed.name)) {
     return;
   }
 
   try {
-    await runCommand(command, {
+    await runCommand(parsed.name, {
       member: message.member,
+      args: parsed.args,
       reply: (payload) => message.reply(payload),
     });
   } catch (error) {
@@ -176,13 +217,18 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     const command = interaction.commandName;
-    if (!['entrar', 'sair', 'status', 'painel'].includes(command)) {
+    if (!COMMANDS.includes(command)) {
       return;
     }
+
+    const args = command === 'play'
+      ? (interaction.options.getString('musica') || interaction.options.getString('query') || '')
+      : '';
 
     await interaction.deferReply();
     await runCommand(command, {
       member: interaction.member,
+      args,
       reply: async (payload) => interaction.editReply(payload),
     });
   } catch (error) {
@@ -205,35 +251,41 @@ async function handlePanelButton(interaction) {
   await interaction.deferUpdate();
 
   try {
-  if (id === 'spotify_leave') {
-    mirror.leave();
-    await interaction.editReply({
-      content: 'Saí do canal de voz.',
-      embeds: [],
-      components: [],
-    }).catch(() => {});
-    return;
-  }
+    if (id === 'spotify_leave') {
+      mirror.leave();
+      await interaction.editReply({
+        content: 'Saí do canal de voz.',
+        embeds: [],
+        components: [],
+      }).catch(() => {});
+      return;
+    }
 
-  if (id === 'spotify_prev') {
-    await mirror.previousSpotify();
-    return;
-  }
-  if (id === 'spotify_next') {
-    await mirror.nextSpotify();
-    return;
-  }
+    if (!mirror.player.isConnected()) {
+      mirror.lastError = 'Não estou no canal. Usa /entrar e depois /play.';
+      await mirror.refreshPanel();
+      return;
+    }
 
-  const playing = Boolean(mirror.getStatus().spotify?.isPlaying);
-  if (playing) {
-    await mirror.pauseSpotify();
-  } else {
-    await mirror.resumeSpotify();
-  }
+    if (id === 'spotify_prev') {
+      await mirror.previous();
+      return;
+    }
+
+    if (id === 'spotify_next') {
+      await mirror.next();
+      return;
+    }
+
+    if (mirror.getStatus().spotify?.isPlaying) {
+      await mirror.pause();
+    } else {
+      await mirror.resume();
+    }
   } catch (error) {
     mirror.lastError = error.message;
     console.error('[discord] Panel button error:', error);
-    await mirror.refreshPanel({ force: true });
+    await mirror.refreshPanel();
   }
 }
 
@@ -249,10 +301,6 @@ if (!config.discordToken) {
       process.exit(1);
     }
   });
-}
-
-if (config.missingSpotify.length) {
-  console.error(`[spotify] Missing ${config.missingSpotify.join(', ')}. !entrar will fail until they are set.`);
 }
 
 process.on('SIGINT', () => {

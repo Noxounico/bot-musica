@@ -40,6 +40,9 @@ class VoiceMirrorPlayer {
     this.channelId = null;
     this.joining = null;
 
+    this.ignoreIdle = false;
+    this.onIdle = null;
+
     this.player.on('error', (error) => {
       console.error('[player] Audio player error:', error.message);
       this.loading = false;
@@ -47,6 +50,12 @@ class VoiceMirrorPlayer {
 
     this.player.on(AudioPlayerStatus.Idle, () => {
       this.loading = false;
+      if (this.ignoreIdle) {
+        return;
+      }
+      if (typeof this.onIdle === 'function') {
+        this.onIdle();
+      }
     });
   }
 
@@ -108,12 +117,20 @@ class VoiceMirrorPlayer {
     return channel.name;
   }
 
-  leave() {
+  quietStop() {
+    this.ignoreIdle = true;
     this.player.stop(true);
     this.currentTrackId = null;
     this.currentQuery = null;
     this.isPaused = false;
     this.loading = false;
+    setTimeout(() => {
+      this.ignoreIdle = false;
+    }, 500);
+  }
+
+  leave() {
+    this.quietStop();
 
     if (this.connection) {
       this.connection.destroy();
@@ -160,24 +177,11 @@ class VoiceMirrorPlayer {
 
   async playTrack({ trackId, searchQuery, progressMs = 0 }) {
     if (!this.isConnected()) {
-      return;
-    }
-
-    if (this.loading) {
-      return;
-    }
-
-    const sameTrack = this.currentTrackId === trackId;
-    if (sameTrack && !this.isPaused && this.player.state.status === AudioPlayerStatus.Playing) {
-      return;
-    }
-
-    if (sameTrack && this.isPaused) {
-      this.resume();
-      return;
+      throw new Error('O bot não está num canal de voz. Usa /entrar primeiro.');
     }
 
     this.loading = true;
+    this.ignoreIdle = true;
     this.player.stop(true);
 
     try {
@@ -199,15 +203,22 @@ class VoiceMirrorPlayer {
       this.currentQuery = searchQuery;
       this.isPaused = false;
     } catch (error) {
-      console.error(`[player] Failed to play "${searchQuery}":`, error.message);
       this.currentTrackId = null;
       this.currentQuery = null;
+      throw new Error(`Não consegui tocar "${searchQuery}": ${error.message}`);
     } finally {
       this.loading = false;
+      setTimeout(() => {
+        this.ignoreIdle = false;
+      }, 500);
     }
   }
 
   async resolveYouTubeUrl(query) {
+    if (/youtube\.com\/watch|youtu\.be\//i.test(query)) {
+      return query;
+    }
+
     const results = await play.search(query, { limit: 3, source: { youtube: 'video' } });
     if (!results.length) {
       throw new Error(`No YouTube match for "${query}"`);

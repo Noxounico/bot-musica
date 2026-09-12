@@ -1,12 +1,13 @@
 {
   "name": "bot-musica",
   "version": "1.0.0",
-  "description": "Discord bot that mirrors Spotify playback (AxeyBot-style)",
+  "description": "Discord music bot with a Spotify-style panel. Audio from YouTube. No Spotify Premium or app required.",
   "private": true,
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "test": "node --test test/*.test.js",
     "auth:spotify": "node scripts/spotify-auth.js"
   },
   "engines": {

@@ -3,82 +3,49 @@ const { VoiceMirrorPlayer } = require('./player');
 const { buildPanel } = require('./panel');
 
 class SpotifyMirrorSync {
-  constructor(config) {
-    this.pollIntervalMs = config.pollIntervalMs;
-    this.spotify = new SpotifyClient({
+  constructor(config, deps = {}) {
+    this.spotify = deps.spotify || new SpotifyClient({
       clientId: config.spotifyClientId,
       clientSecret: config.spotifyClientSecret,
-      refreshToken: config.spotifyRefreshToken,
     });
-    this.player = new VoiceMirrorPlayer();
-    this.enabled = false;
-    this.timer = null;
-    this.lastState = null;
+    this.player = deps.player || new VoiceMirrorPlayer();
+    this.queue = [];
+    this.history = [];
+    this.current = null;
+    this.startedAt = 0;
+    this.pausedAt = 0;
     this.lastError = null;
-    this.account = null;
+    this.account = { displayName: 'NoxMusic', imageUrl: null };
     this.channelName = null;
     this.panelMessage = null;
-    this.panelTicks = 0;
     this.onTrack = null;
-  }
 
-  start() {
-    if (this.timer) {
-      return;
-    }
-
-    this.enabled = true;
-    this.timer = setInterval(() => {
-      this.tick().catch((error) => {
+    this.player.onIdle = () => {
+      this.next({ fromIdle: true }).catch((error) => {
         this.lastError = error.message;
-        console.error('[sync] Poll error:', error.message);
+        console.error('[sync] Auto-next failed:', error.message);
+        this.refreshPanel();
       });
-    }, this.pollIntervalMs);
-
-    this.tick().catch((error) => {
-      this.lastError = error.message;
-      console.error('[sync] Initial poll error:', error.message);
-    });
+    };
   }
 
-  stop() {
-    this.enabled = false;
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-  }
-
-  async join(channel) {
-    if (!this.spotify.clientId || !this.spotify.clientSecret || !this.spotify.refreshToken) {
-      throw new Error(
-        'Faltam SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET ou SPOTIFY_REFRESH_TOKEN nas variáveis do Railway.',
-      );
-    }
-
+  async join(channel, account) {
     this.channelName = await this.player.join(channel);
-    try {
-      this.account = await this.spotify.getMe();
-    } catch (error) {
-      console.error('[sync] Failed to load Spotify profile:', error.message);
+    if (account?.displayName) {
+      this.account = account;
     }
-    this.start();
-    try {
-      await this.tick();
-    } catch (error) {
-      this.lastError = error.message;
-      console.error('[sync] Initial poll error:', error.message);
-    }
+    this.lastError = null;
     return this.channelName;
   }
 
   leave() {
-    this.stop();
-    this.player.leave();
-    this.lastState = null;
+    this.queue = [];
+    this.history = [];
+    this.current = null;
     this.channelName = null;
     const panel = this.panelMessage;
     this.panelMessage = null;
+    this.player.leave();
     if (panel) {
       const payload = buildPanel(this.getPanelState());
       payload.components = [];
@@ -90,12 +57,27 @@ class SpotifyMirrorSync {
     this.panelMessage = message;
   }
 
+  currentState() {
+    if (!this.current) {
+      return null;
+    }
+    const elapsed = this.player.isPaused
+      ? this.pausedAt
+      : (this.startedAt ? Date.now() - this.startedAt : 0);
+    return {
+      ...this.current,
+      isPlaying: !this.player.isPaused && Boolean(this.player.currentTrackId),
+      progressMs: Math.min(this.current.durationMs || elapsed, elapsed),
+    };
+  }
+
   getPanelState() {
     return {
       account: this.account,
-      spotify: this.lastState,
+      spotify: this.currentState(),
       lastError: this.lastError,
       channelName: this.channelName,
+      queueLength: this.queue.length,
     };
   }
 
@@ -103,18 +85,10 @@ class SpotifyMirrorSync {
     return buildPanel(this.getPanelState());
   }
 
-  async refreshPanel({ force = false } = {}) {
+  async refreshPanel() {
     if (!this.panelMessage) {
       return;
     }
-
-    if (!force) {
-      this.panelTicks += 1;
-      if (this.panelTicks % 4 !== 0) {
-        return;
-      }
-    }
-
     try {
       await this.panelMessage.edit(this.panelPayload());
     } catch (error) {
@@ -122,84 +96,118 @@ class SpotifyMirrorSync {
     }
   }
 
-  async controlAndRefresh(action) {
-    await action();
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    await this.tick();
-    await this.refreshPanel({ force: true });
+  async resolveTrack(query) {
+    const found = this.spotify.enabled() ? await this.spotify.resolve(query) : null;
+    return found || {
+      trackId: query,
+      title: query,
+      artists: 'YouTube',
+      albumArt: null,
+      externalUrl: null,
+      durationMs: 0,
+      searchQuery: query,
+    };
   }
 
-  pauseSpotify() {
-    return this.controlAndRefresh(() => this.spotify.pausePlayback());
-  }
-
-  resumeSpotify() {
-    return this.controlAndRefresh(() => this.spotify.resumePlayback());
-  }
-
-  nextSpotify() {
-    return this.controlAndRefresh(() => this.spotify.nextTrack());
-  }
-
-  previousSpotify() {
-    return this.controlAndRefresh(() => this.spotify.previousTrack());
-  }
-
-  async tick() {
-    if (!this.enabled || !this.player.isConnected()) {
-      return;
+  async playQuery(query, account) {
+    if (account?.displayName) {
+      this.account = account;
     }
 
-    const state = await this.spotify.getPlaybackState();
+    const track = await this.resolveTrack(query);
+
+    if (this.current && this.player.currentTrackId) {
+      this.queue.push(track);
+      this.lastError = null;
+      await this.refreshPanel();
+      return { queued: true, track, position: this.queue.length };
+    }
+
+    await this.startTrack(track);
+    return { queued: false, track };
+  }
+
+  async startTrack(track) {
+    this.current = track;
+    this.startedAt = Date.now();
+    this.pausedAt = 0;
     this.lastError = null;
-
-    if (!state) {
-      if (this.lastState?.isPlaying) {
-        this.player.pause();
-      }
-      this.lastState = null;
-      await this.refreshPanel({ force: true });
-      return;
-    }
-
-    if (state.volumePercent !== null) {
-      this.player.setVolume(state.volumePercent);
-    }
-
-    const trackChanged = this.lastState?.trackId !== state.trackId;
-    const playStateChanged = this.lastState?.isPlaying !== state.isPlaying;
-
-    if (!state.isPlaying) {
-      if (this.lastState?.isPlaying || trackChanged) {
-        this.player.pause();
-      }
-      this.lastState = state;
-      if (this.onTrack) {
-        this.onTrack(state);
-      }
-      await this.refreshPanel({ force: playStateChanged || trackChanged });
-      return;
-    }
-
-    if (trackChanged || playStateChanged || !this.lastState) {
+    try {
       await this.player.playTrack({
-        trackId: state.trackId,
-        searchQuery: state.searchQuery,
-        progressMs: state.progressMs,
+        trackId: track.trackId,
+        searchQuery: track.searchQuery || `${track.artists} - ${track.title}`,
+        progressMs: 0,
       });
-      if (this.onTrack) {
-        this.onTrack(state);
-      }
+    } catch (error) {
+      this.lastError = error.message;
+      this.current = null;
+      await this.refreshPanel();
+      throw error;
+    }
+    if (this.onTrack) {
+      this.onTrack(this.currentState());
+    }
+    await this.refreshPanel();
+  }
+
+  pause() {
+    if (!this.current) {
+      throw new Error('Não há nada a tocar. Usa /play.');
+    }
+    this.pausedAt = Date.now() - this.startedAt;
+    this.player.pause();
+    return this.refreshPanel();
+  }
+
+  resume() {
+    if (!this.current) {
+      throw new Error('Não há nada a tocar. Usa /play.');
+    }
+    this.startedAt = Date.now() - this.pausedAt;
+    this.player.resume();
+    return this.refreshPanel();
+  }
+
+  async next({ fromIdle = false } = {}) {
+    if (this.current) {
+      this.history.push(this.current);
     }
 
-    this.lastState = state;
-    await this.refreshPanel({ force: trackChanged || playStateChanged });
+    const upcoming = this.queue.shift();
+    if (!upcoming) {
+      this.current = null;
+      this.player.quietStop();
+      await this.refreshPanel();
+      return null;
+    }
+
+    try {
+      await this.startTrack(upcoming);
+      return upcoming;
+    } catch (error) {
+      if (fromIdle) {
+        throw error;
+      }
+      return this.next({ fromIdle });
+    }
+  }
+
+  async previous() {
+    const previous = this.history.pop();
+    if (!previous) {
+      throw new Error('Não há faixa anterior.');
+    }
+    if (this.current) {
+      this.queue.unshift(this.current);
+    }
+    await this.startTrack(previous);
+    return previous;
   }
 
   getStatus() {
     return {
-      enabled: this.enabled,
-      spotify: this.lastState,
+      enabled: this.player.isConnected(),
+      spotify: this.currentState(),
       discord: this.player.getStatus(),
       lastError: this.lastError,
       account: this.account,

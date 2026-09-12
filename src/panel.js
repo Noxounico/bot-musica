@@ -22,27 +22,27 @@ function progressBar(progressMs, durationMs) {
   return `${'▬'.repeat(index)}●${'▬'.repeat(width - 1 - index)}`;
 }
 
-function buildPanel({ account, spotify, lastError, channelName }) {
+function buildPanel({ account, spotify, lastError, channelName, queueLength = 0 }) {
   const playing = Boolean(spotify?.isPlaying);
   const embed = new EmbedBuilder()
     .setColor(0x1db954)
     .setAuthor({
-      name: account?.displayName ? `Spotify · ${account.displayName}` : 'Spotify',
+      name: account?.displayName ? `NoxMusic · ${account.displayName}` : 'NoxMusic',
       iconURL: account?.imageUrl || undefined,
-      url: 'https://open.spotify.com',
     })
     .setTitle(spotify?.title || 'Nada a tocar')
     .setDescription(
       [
-        spotify?.artists || 'Abre o Spotify e mete uma música.',
+        spotify?.artists || 'Usa `/play nome da música` — não precisas do Spotify aberto nem de Premium.',
         spotify
           ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
           : null,
         channelName ? `Canal: **${channelName}** · fones cortados` : null,
+        queueLength ? `Na fila: **${queueLength}**` : null,
       ].filter(Boolean).join('\n'),
     )
     .setFooter({
-      text: playing ? 'A tocar' : (spotify ? 'Em pausa' : 'À espera do Spotify'),
+      text: playing ? 'A tocar no Discord' : (spotify ? 'Em pausa' : 'À espera de /play'),
     });
 
   if (spotify?.albumArt) {
