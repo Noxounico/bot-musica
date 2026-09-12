@@ -19,7 +19,7 @@ Copia `.env.example` para `.env` e preenche:
 | Variável | Descrição |
 |----------|-----------|
 | `DISCORD_TOKEN` | Token do bot Discord |
-| `DISCORD_CLIENT_ID` | Application ID do bot (para registar slash commands) |
+| `DISCORD_CLIENT_ID` | Application ID do bot (para limpar slash commands antigos) |
 | `DISCORD_GUILD_ID` | (Opcional) ID do servidor para registar comandos só aí durante testes |
 | `SPOTIFY_CLIENT_ID` | Client ID da app Spotify |
 | `SPOTIFY_CLIENT_SECRET` | Client Secret da app Spotify |
@@ -32,7 +32,7 @@ Copia `.env.example` para `.env` e preenche:
 
 1. Cria uma aplicação em https://discord.com/developers/applications
 2. Em **Bot**, gera um token → `DISCORD_TOKEN`
-3. Ativa **Message Content Intent** se precisares no futuro; para slash commands basta o token
+3. Ativa **Message Content Intent** (obrigatório para `!entrar` / `!sair` / `!status`)
 4. Em **OAuth2 → URL Generator**, scopes: `bot`, `applications.commands`
 5. Permissões do bot: `Connect`, `Speak`, `Use Voice Activity`
 6. Convida o bot para o teu servidor
@@ -62,9 +62,9 @@ npm start
 
 No Discord:
 
-- `/entrar` — entra no teu canal de voz e começa a espelhar o Spotify
-- `/sair` — para e sai do canal
-- `/status` — estado atual
+- `!entrar` — entra no teu canal de voz e começa a espelhar o Spotify
+- `!sair` — para e sai do canal
+- `!status` — estado atual
 
 ## Como funciona
 

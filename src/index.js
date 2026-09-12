@@ -1,13 +1,13 @@
 const {
   Client,
   GatewayIntentBits,
-  SlashCommandBuilder,
   REST,
   Routes,
   EmbedBuilder,
 } = require('discord.js');
 const { listenForPlatform } = require('./health');
 const config = require('./config');
+const { parsePrefixCommand } = require('./prefix');
 
 listenForPlatform();
 
@@ -24,120 +24,102 @@ console.log('[boot] env present', {
 
 const mirror = new SpotifyMirrorSync(config);
 
-const commands = [
-  new SlashCommandBuilder()
-    .setName('entrar')
-    .setDescription('O bot entra no teu canal de voz e começa a espelhar o Spotify'),
-  new SlashCommandBuilder()
-    .setName('sair')
-    .setDescription('Para o espelhamento e sai do canal de voz'),
-  new SlashCommandBuilder()
-    .setName('status')
-    .setDescription('Mostra o estado atual do Spotify e do Discord'),
-].map((command) => command.toJSON());
-
-async function registerCommands(client) {
-  if (!config.discordClientId) {
-    console.error('[discord] DISCORD_CLIENT_ID (or CLIENT_ID) is not set; slash commands will not register.');
+async function clearSlashCommands() {
+  if (!config.discordToken || !config.discordClientId) {
     return;
   }
 
   const rest = new REST({ version: '10' }).setToken(config.discordToken);
-  const body = { body: commands };
-
+  await rest.put(Routes.applicationCommands(config.discordClientId), { body: [] });
   if (config.discordGuildId) {
-    await rest.put(Routes.applicationGuildCommands(config.discordClientId, config.discordGuildId), body);
-    console.log(`[discord] Registered guild commands for ${config.discordGuildId}`);
+    await rest.put(
+      Routes.applicationGuildCommands(config.discordClientId, config.discordGuildId),
+      { body: [] },
+    );
+  }
+  console.log('[discord] Removed slash commands; use !entrar !sair !status');
+}
+
+async function handleCommand(message, command) {
+  if (command === 'entrar') {
+    const voiceChannel = message.member?.voice?.channel;
+    if (!voiceChannel) {
+      await message.reply('Entra num canal de voz primeiro, depois usa `!entrar`.');
+      return;
+    }
+
+    const channelName = await mirror.join(voiceChannel);
+    await message.reply(`A espelhar o Spotify em **${channelName}**. Muda música, pausa ou avança no Spotify — o bot segue.`);
     return;
   }
 
-  await rest.put(Routes.applicationCommands(config.discordClientId), body);
-  console.log('[discord] Registered global commands');
+  if (command === 'sair') {
+    mirror.leave();
+    await message.reply('Saí do canal de voz e parei de espelhar o Spotify.');
+    return;
+  }
+
+  if (command === 'status') {
+    const status = mirror.getStatus();
+    const embed = new EmbedBuilder()
+      .setTitle('Estado do espelhamento')
+      .setColor(status.enabled ? 0x1db954 : 0x5865f2)
+      .addFields(
+        {
+          name: 'Discord',
+          value: status.discord.connected
+            ? `Conectado · ${status.discord.paused ? 'Pausado' : status.discord.playerStatus} · volume ${status.discord.volume}%`
+            : 'Desconectado',
+        },
+        {
+          name: 'Spotify',
+          value: status.spotify
+            ? `${status.spotify.artists} — ${status.spotify.title}\n${status.spotify.isPlaying ? 'A tocar' : 'Em pausa'}`
+            : 'Nada a tocar (ou Spotify fechado)',
+        },
+      );
+
+    if (status.lastError) {
+      embed.addFields({ name: 'Último erro', value: status.lastError });
+    }
+
+    await message.reply({ embeds: [embed] });
+  }
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 client.once('ready', async () => {
   console.log(`[discord] Logged in as ${client.user.tag}`);
   try {
-    await registerCommands(client);
+    await clearSlashCommands();
   } catch (error) {
-    console.error('[discord] Failed to register commands:', error.message);
+    console.error('[discord] Failed to clear slash commands:', error.message);
   }
 });
 
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) {
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || !message.guild) {
+    return;
+  }
+
+  const command = parsePrefixCommand(message.content);
+  if (!command || !['entrar', 'sair', 'status'].includes(command)) {
     return;
   }
 
   try {
-    if (interaction.commandName === 'entrar') {
-      const member = interaction.member;
-      const voiceChannel = member?.voice?.channel;
-
-      if (!voiceChannel) {
-        await interaction.reply({
-          content: 'Entra num canal de voz primeiro, depois usa `/entrar`.',
-          ephemeral: true,
-        });
-        return;
-      }
-
-      await interaction.deferReply({ ephemeral: true });
-      const channelName = await mirror.join(voiceChannel);
-
-      await interaction.editReply({
-        content: `A espelhar o Spotify em **${channelName}**. Muda música, pausa ou avança no Spotify — o bot segue.`,
-      });
-      return;
-    }
-
-    if (interaction.commandName === 'sair') {
-      mirror.leave();
-      await interaction.reply({
-        content: 'Saí do canal de voz e parei de espelhar o Spotify.',
-        ephemeral: true,
-      });
-      return;
-    }
-
-    if (interaction.commandName === 'status') {
-      const status = mirror.getStatus();
-      const embed = new EmbedBuilder()
-        .setTitle('Estado do espelhamento')
-        .setColor(status.enabled ? 0x1db954 : 0x5865f2)
-        .addFields(
-          {
-            name: 'Discord',
-            value: status.discord.connected
-              ? `Conectado · ${status.discord.paused ? 'Pausado' : status.discord.playerStatus} · volume ${status.discord.volume}%`
-              : 'Desconectado',
-          },
-          {
-            name: 'Spotify',
-            value: status.spotify
-              ? `${status.spotify.artists} — ${status.spotify.title}\n${status.spotify.isPlaying ? 'A tocar' : 'Em pausa'}`
-              : 'Nada a tocar (ou Spotify fechado)',
-          },
-        );
-
-      if (status.lastError) {
-        embed.addFields({ name: 'Último erro', value: status.lastError });
-      }
-
-      await interaction.reply({ embeds: [embed], ephemeral: true });
-    }
+    await handleCommand(message, command);
   } catch (error) {
     console.error('[discord] Command error:', error);
-    const payload = { content: `Erro: ${error.message}`, ephemeral: true };
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(payload);
-    } else {
-      await interaction.reply(payload);
-    }
+    await message.reply(`Erro: ${error.message}`).catch(() => {});
   }
 });
 
@@ -156,7 +138,7 @@ if (!config.discordToken) {
 }
 
 if (config.missingSpotify.length) {
-  console.error(`[spotify] Missing ${config.missingSpotify.join(', ')}. /entrar will fail until they are set.`);
+  console.error(`[spotify] Missing ${config.missingSpotify.join(', ')}. !entrar will fail until they are set.`);
 }
 
 process.on('SIGINT', () => {
