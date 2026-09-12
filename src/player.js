@@ -156,9 +156,13 @@ class VoiceMirrorPlayer {
     return Boolean(this.connection);
   }
 
+  getVolumePercent() {
+    return Math.round(this.volume * 100);
+  }
+
   setVolume(percent) {
     if (typeof percent !== 'number' || Number.isNaN(percent)) {
-      return;
+      return this.getVolumePercent();
     }
 
     const clamped = Math.max(0, Math.min(100, percent));
@@ -168,6 +172,11 @@ class VoiceMirrorPlayer {
     if (resource?.volume) {
       resource.volume.setVolume(this.volume);
     }
+    return this.getVolumePercent();
+  }
+
+  adjustVolume(delta) {
+    return this.setVolume(this.getVolumePercent() + Number(delta || 0));
   }
 
   pause() {

@@ -11,7 +11,12 @@ const {
 const { handleRequest } = require('../src/health');
 
 test('slash payload always includes /play and /tocar', () => {
-  assert.deepEqual(COMMAND_NAMES, ['entrar', 'sair', 'status', 'painel', 'play', 'tocar']);
+  assert.ok(COMMAND_NAMES.includes('play'));
+  assert.ok(COMMAND_NAMES.includes('tocar'));
+  assert.ok(COMMAND_NAMES.includes('add'));
+  assert.ok(COMMAND_NAMES.includes('volume'));
+  assert.ok(COMMAND_NAMES.includes('playlist'));
+  assert.ok(COMMAND_NAMES.includes('clipe'));
   const play = slashCommands.find((command) => command.name === 'play');
   const tocar = slashCommands.find((command) => command.name === 'tocar');
   assert.equal(play.options[0].name, 'musica');

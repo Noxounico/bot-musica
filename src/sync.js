@@ -2,6 +2,7 @@ const { SpotifyClient } = require('./spotify');
 const { VoiceMirrorPlayer } = require('./player');
 const { buildPanel } = require('./panel');
 const { extractYouTubeId, fetchOEmbed, watchUrl } = require('./youtube');
+const playlists = require('./playlists');
 
 class SpotifyMirrorSync {
   constructor(config, deps = {}) {
@@ -19,7 +20,10 @@ class SpotifyMirrorSync {
     this.account = { displayName: 'NoxMusic', imageUrl: null };
     this.channelName = null;
     this.panelMessage = null;
+    this.panelChannel = null;
     this.onTrack = null;
+    this.guildId = null;
+    this.suggestions = [];
 
     this.player.onIdle = () => {
       this.next({ fromIdle: true }).catch((error) => {
@@ -32,6 +36,7 @@ class SpotifyMirrorSync {
 
   async join(channel, account) {
     this.channelName = await this.player.join(channel);
+    this.guildId = channel.guild?.id || this.guildId;
     if (account?.displayName) {
       this.account = account;
     }
@@ -44,8 +49,10 @@ class SpotifyMirrorSync {
     this.history = [];
     this.current = null;
     this.channelName = null;
+    this.suggestions = [];
     const panel = this.panelMessage;
     this.panelMessage = null;
+    this.panelChannel = panel?.channel || this.panelChannel;
     this.player.leave();
     if (panel) {
       const payload = buildPanel(this.getPanelState());
@@ -56,6 +63,16 @@ class SpotifyMirrorSync {
 
   attachPanel(message) {
     this.panelMessage = message;
+    this.panelChannel = message?.channel || this.panelChannel;
+  }
+
+  panelContent() {
+    const state = this.currentState();
+    if (!state) {
+      return 'NoxMusic · usa `/play` para começar';
+    }
+    const label = state.isPlaying ? 'A tocar' : 'Em pausa';
+    return `${label} **${state.artists} — ${state.title}**`;
   }
 
   currentState() {
@@ -78,7 +95,10 @@ class SpotifyMirrorSync {
       spotify: this.currentState(),
       lastError: this.lastError,
       channelName: this.channelName,
-      queueLength: this.queue.length,
+      queue: this.queue,
+      suggestions: this.suggestions,
+      volume: this.player.getVolumePercent ? this.player.getVolumePercent() : 100,
+      playlists: this.guildId ? playlists.list(this.guildId) : [],
     };
   }
 
@@ -87,14 +107,34 @@ class SpotifyMirrorSync {
   }
 
   async refreshPanel() {
-    if (!this.panelMessage) {
-      return;
+    const payload = {
+      content: this.panelContent(),
+      ...this.panelPayload(),
+    };
+
+    if (this.panelMessage) {
+      try {
+        const edited = await this.panelMessage.edit(payload);
+        if (edited && typeof edited.edit === 'function') {
+          this.panelMessage = edited;
+        }
+        return this.panelMessage;
+      } catch (error) {
+        console.error('[sync] Panel edit failed:', error.message);
+        this.panelMessage = null;
+      }
     }
-    try {
-      await this.panelMessage.edit(this.panelPayload());
-    } catch (error) {
-      console.error('[sync] Panel edit failed:', error.message);
+
+    if (this.panelChannel?.send) {
+      try {
+        this.panelMessage = await this.panelChannel.send(payload);
+        return this.panelMessage;
+      } catch (error) {
+        console.error('[sync] Panel send failed:', error.message);
+      }
     }
+
+    return null;
   }
 
   async resolveTrack(query) {
@@ -106,13 +146,17 @@ class SpotifyMirrorSync {
           'Esse link do YouTube não é válido ou o vídeo está indisponível. Usa `/play` com o nome da música, por exemplo `/play TA PEDINDO TOMA`.',
         );
       }
+      const spotify = this.spotify.enabled() && typeof this.spotify.searchTrack === 'function'
+        ? await this.spotify.searchTrack(`${meta.author} ${meta.title}`)
+        : null;
       return {
-        trackId: youtubeId,
-        title: meta.title,
-        artists: meta.author,
-        albumArt: meta.thumbnail,
-        externalUrl: watchUrl(youtubeId),
-        durationMs: 0,
+        trackId: spotify?.trackId || youtubeId,
+        title: spotify?.title || meta.title,
+        artists: spotify?.artists || meta.author,
+        artistId: spotify?.artistId || null,
+        albumArt: spotify?.albumArt || meta.thumbnail,
+        externalUrl: spotify?.externalUrl || watchUrl(youtubeId),
+        durationMs: spotify?.durationMs || 0,
         searchQuery: `${meta.author} - ${meta.title}`,
         youtubeUrl: watchUrl(youtubeId),
       };
@@ -130,18 +174,22 @@ class SpotifyMirrorSync {
     };
   }
 
-  async playQuery(query, account) {
+  async playQuery(query, account, { replace = false } = {}) {
     if (account?.displayName) {
       this.account = account;
     }
 
     const track = await this.resolveTrack(query);
 
-    if (this.current && this.player.currentTrackId) {
+    if (!replace && this.current && this.player.currentTrackId) {
       this.queue.push(track);
       this.lastError = null;
       await this.refreshPanel();
       return { queued: true, track, position: this.queue.length };
+    }
+
+    if (replace && this.current) {
+      this.history.push(this.current);
     }
 
     await this.startTrack(track);
@@ -153,6 +201,8 @@ class SpotifyMirrorSync {
     this.startedAt = Date.now();
     this.pausedAt = 0;
     this.lastError = null;
+    this.suggestions = [];
+    await this.refreshPanel();
     try {
       await this.player.playTrack({
         trackId: track.trackId,
@@ -170,6 +220,62 @@ class SpotifyMirrorSync {
       this.onTrack(this.currentState());
     }
     await this.refreshPanel();
+    this.refreshSuggestions().catch((error) => {
+      console.error('[sync] Suggestions failed:', error.message);
+    });
+  }
+
+  async refreshSuggestions() {
+    if (!this.current || !this.spotify.enabled()) {
+      this.suggestions = [];
+      return;
+    }
+    this.suggestions = await this.spotify.suggestionsFor(this.current);
+    await this.refreshPanel();
+  }
+
+  adjustVolume(delta) {
+    if (typeof this.player.adjustVolume !== 'function') {
+      throw new Error('Volume indisponível.');
+    }
+    this.player.adjustVolume(delta);
+    return this.refreshPanel();
+  }
+
+  setVolume(percent) {
+    if (typeof this.player.setVolume !== 'function') {
+      throw new Error('Volume indisponível.');
+    }
+    this.player.setVolume(percent);
+    return this.refreshPanel();
+  }
+
+  shuffle() {
+    for (let index = this.queue.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [this.queue[index], this.queue[swap]] = [this.queue[swap], this.queue[index]];
+    }
+    return this.refreshPanel();
+  }
+
+  saveSessionPlaylist() {
+    const tracks = [this.current, ...this.queue].filter(Boolean);
+    if (!tracks.length) {
+      throw new Error('Não há músicas para guardar. Usa /play primeiro.');
+    }
+    const playlist = playlists.snapshot(this.guildId, 'sessao', tracks);
+    return playlist;
+  }
+
+  async playPlaylist(name) {
+    const playlist = playlists.get(this.guildId, name);
+    if (!playlist || !playlist.tracks.length) {
+      throw new Error(`A playlist **${name}** está vazia. Usa \`/playlist add ${name}\`.`);
+    }
+    const [first, ...rest] = playlist.tracks.map((track) => ({ ...track }));
+    this.queue = rest;
+    await this.startTrack(first);
+    return playlist;
   }
 
   pause() {
