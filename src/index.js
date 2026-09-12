@@ -1,15 +1,18 @@
 const {
   Client,
   GatewayIntentBits,
-  SlashCommandBuilder,
-  REST,
-  Routes,
   ActivityType,
 } = require('discord.js');
 const { listenForPlatform } = require('./health');
 const config = require('./config');
 const { parsePrefixCommand } = require('./prefix');
 const { SpotifyMirrorSync } = require('./sync');
+const {
+  COMMAND_NAMES,
+  registerSlashCommands,
+  isPlayCommand,
+  playArgsFrom,
+} = require('./commands');
 
 listenForPlatform();
 
@@ -24,62 +27,14 @@ console.log('[boot] env present', {
 
 const mirror = new SpotifyMirrorSync(config);
 
-const COMMANDS = ['entrar', 'sair', 'status', 'painel', 'play'];
-
-const slashCommands = [
-  new SlashCommandBuilder()
-    .setName('entrar')
-    .setDescription('Entra no teu canal de voz e mostra o painel do NoxMusic'),
-  new SlashCommandBuilder()
-    .setName('sair')
-    .setDescription('Sai do canal de voz'),
-  new SlashCommandBuilder()
-    .setName('status')
-    .setDescription('Mostra o painel de reprodução'),
-  new SlashCommandBuilder()
-    .setName('painel')
-    .setDescription('Volta a publicar o painel com controlos'),
-  new SlashCommandBuilder()
-    .setName('play')
-    .setDescription('Toca uma música no Discord. Não precisa do Spotify aberto.')
-    .addStringOption((option) =>
-      option
-        .setName('musica')
-        .setDescription('Nome da música, ou link do YouTube / Spotify')
-        .setRequired(true),
-    ),
-].map((command) => command.toJSON());
-
-async function registerSlashCommands(client) {
-  if (!config.discordToken || !config.discordClientId) {
-    return;
-  }
-
-  const rest = new REST({ version: '10' }).setToken(config.discordToken);
-  const body = { body: slashCommands };
-  const guildIds = new Set(client.guilds.cache.map((guild) => guild.id));
-  if (config.discordGuildId) {
-    guildIds.add(config.discordGuildId);
-  }
-
-  if (guildIds.size === 0) {
-    await rest.put(Routes.applicationCommands(config.discordClientId), body);
-    console.log('[discord] Registered global slash commands (no guilds cached yet)');
-    return;
-  }
-
-  for (const guildId of guildIds) {
-    await rest.put(Routes.applicationGuildCommands(config.discordClientId, guildId), body);
-    console.log(`[discord] Registered guild commands for ${guildId}`);
-  }
-}
+const COMMANDS = COMMAND_NAMES;
 
 function accountLine(status) {
   if (status.spotify) {
     const label = status.spotify.isPlaying ? 'A tocar no Discord' : 'Em pausa';
     return `${label}: **${status.spotify.artists} — ${status.spotify.title}**`;
   }
-  return status.lastError || 'Usa `/play nome da música`. Não precisas do Spotify aberto nem de Premium.';
+  return status.lastError || 'Usa `/play` ou `/tocar` com o nome da música. Não precisas do Spotify aberto nem de Premium.';
 }
 
 async function ensureJoined(member) {
@@ -107,14 +62,17 @@ async function publishPanel(reply, content) {
 async function runCommand(command, { member, reply, args }) {
   if (command === 'entrar') {
     await ensureJoined(member);
+    registerSlashCommands(client).catch((error) => {
+      console.error('[discord] Failed to refresh slash commands:', error.message);
+    });
     await publishPanel(reply, accountLine(mirror.getStatus()));
     return;
   }
 
-  if (command === 'play') {
+  if (isPlayCommand(command)) {
     const query = String(args || '').trim();
     if (!query) {
-      await reply('Diz o nome da música. Exemplo: `/play bohemian rhapsody`');
+      await reply('Diz o nome da música. Exemplo: `/play bohemian rhapsody` ou `/tocar bohemian rhapsody`');
       return;
     }
 
@@ -221,9 +179,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    const args = command === 'play'
-      ? (interaction.options.getString('musica') || interaction.options.getString('query') || '')
-      : '';
+    const args = isPlayCommand(command) ? playArgsFrom(interaction) : '';
 
     await interaction.deferReply();
     await runCommand(command, {

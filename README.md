@@ -51,7 +51,8 @@ No Discord:
 
 1. Entra num canal de voz
 2. `/entrar` (menu `/`, não escrevas o texto à mão)
-3. `/play nome da música` — ou um link do YouTube / Spotify
+3. `/play` ou `/tocar` com o nome da música — ou um link do YouTube / Spotify
+   Se o Discord mostrar o `/play` de outro bot, escolhe o **NoxMusic** ou usa `/tocar`.
 4. No painel: ⏮ ▶/⏸ ⏭ e **Sair**
 
 `/sair` sai do voice. `/painel` volta a publicar o painel.

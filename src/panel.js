@@ -33,7 +33,7 @@ function buildPanel({ account, spotify, lastError, channelName, queueLength = 0 
     .setTitle(spotify?.title || 'Nada a tocar')
     .setDescription(
       [
-        spotify?.artists || 'Usa `/play nome da música` — não precisas do Spotify aberto nem de Premium.',
+        spotify?.artists || 'Usa `/play` ou `/tocar` — não precisas do Spotify aberto nem de Premium.',
         spotify
           ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
           : null,
