@@ -73,6 +73,7 @@ test('resolveTrack maps share links via oEmbed and does not call Spotify', async
         },
         spotify: {
           enabled: () => true,
+          searchTrack: async () => null,
           resolve: async () => {
             throw new Error('should not search Spotify for YouTube URLs');
           },

@@ -114,7 +114,10 @@ class SpotifyMirrorSync {
 
     if (this.panelMessage) {
       try {
-        this.panelMessage = await this.panelMessage.edit(payload);
+        const edited = await this.panelMessage.edit(payload);
+        if (edited && typeof edited.edit === 'function') {
+          this.panelMessage = edited;
+        }
         return this.panelMessage;
       } catch (error) {
         console.error('[sync] Panel edit failed:', error.message);
@@ -143,7 +146,7 @@ class SpotifyMirrorSync {
           'Esse link do YouTube não é válido ou o vídeo está indisponível. Usa `/play` com o nome da música, por exemplo `/play TA PEDINDO TOMA`.',
         );
       }
-      const spotify = this.spotify.enabled()
+      const spotify = this.spotify.enabled() && typeof this.spotify.searchTrack === 'function'
         ? await this.spotify.searchTrack(`${meta.author} ${meta.title}`)
         : null;
       return {
