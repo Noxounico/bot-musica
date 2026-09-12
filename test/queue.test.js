@@ -53,6 +53,18 @@ class FakePlayer {
     this.played.push(searchQuery);
   }
 
+  getVolumePercent() {
+    return 80;
+  }
+
+  setVolume() {
+    return 80;
+  }
+
+  adjustVolume() {
+    return 80;
+  }
+
   getStatus() {
     return {
       connected: this.isConnected(),
@@ -121,15 +133,36 @@ test('panel copy tells the user to /play without Premium or an open Spotify app'
     spotify: null,
     lastError: null,
     channelName: 'Geral',
-    queueLength: 0,
+    queue: [],
+    volume: 70,
   });
   const description = payload.embeds[0].data.description;
   const footer = payload.embeds[0].data.footer.text;
   assert.match(description, /\/play/);
   assert.match(description, /não precisas do Spotify aberto nem de Premium/i);
-  assert.equal(footer, 'À espera de /play');
+  assert.match(description, /70%/);
+  assert.match(footer, /À espera de \/play/);
   assert.deepEqual(
     payload.components[0].components.map((button) => button.data.custom_id),
-    ['spotify_prev', 'spotify_playpause', 'spotify_next', 'spotify_leave'],
+    ['spotify_prev', 'spotify_playpause', 'spotify_next', 'nox_voldown', 'nox_volup'],
   );
+});
+
+test('changing track edits the same panel message immediately', async () => {
+  const { sync, player } = session();
+  const edits = [];
+  sync.attachPanel({
+    edit: async (payload) => {
+      edits.push(payload.content);
+      return payload;
+    },
+  });
+
+  await sync.playQuery('one');
+  await sync.playQuery('two', null, { replace: true });
+
+  assert.equal(player.played.at(-1), 'two');
+  assert.ok(edits.some((line) => /one/.test(line)));
+  assert.ok(edits.some((line) => /two/.test(line)));
+  assert.match(edits.at(-1), /two/);
 });

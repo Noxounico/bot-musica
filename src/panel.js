@@ -3,6 +3,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
 } = require('discord.js');
 
 function formatClock(ms) {
@@ -22,50 +23,144 @@ function progressBar(progressMs, durationMs) {
   return `${'▬'.repeat(index)}●${'▬'.repeat(width - 1 - index)}`;
 }
 
-function buildPanel({ account, spotify, lastError, channelName, queueLength = 0 }) {
+function volumeBar(percent) {
+  const width = 8;
+  const clamped = Math.max(0, Math.min(100, Number(percent) || 0));
+  const filled = Math.round((clamped / 100) * width);
+  return `${'▰'.repeat(filled)}${'▱'.repeat(width - filled)} **${clamped}%**`;
+}
+
+function suggestionValue(track) {
+  if (track?.externalUrl && /open\.spotify\.com\/track\//.test(track.externalUrl)) {
+    return track.externalUrl.slice(0, 100);
+  }
+  if (track?.trackId && /^[A-Za-z0-9]{22}$/.test(track.trackId)) {
+    return `spotify:track:${track.trackId}`;
+  }
+  return String(track?.searchQuery || track?.title || '').slice(0, 100);
+}
+
+function buildPanel({
+  account,
+  spotify,
+  lastError,
+  channelName,
+  queue = [],
+  suggestions = [],
+  volume = 100,
+  playlists = [],
+}) {
   const playing = Boolean(spotify?.isPlaying);
+  const queueLength = queue.length;
   const embed = new EmbedBuilder()
     .setColor(0x1db954)
     .setAuthor({
       name: account?.displayName ? `NoxMusic · ${account.displayName}` : 'NoxMusic',
       iconURL: account?.imageUrl || undefined,
     })
-    .setTitle(spotify?.title || 'Nada a tocar')
-    .setDescription(
-      [
-        spotify?.artists || 'Usa `/play` ou `/tocar` — não precisas do Spotify aberto nem de Premium.',
-        spotify
-          ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
-          : null,
-        channelName ? `Canal: **${channelName}** · fones cortados` : null,
-        queueLength ? `Na fila: **${queueLength}**` : null,
-      ].filter(Boolean).join('\n'),
-    )
+    .setTitle(spotify?.title ? `🎵  ${spotify.title}` : 'NoxMusic')
     .setFooter({
-      text: playing ? 'A tocar no Discord' : (spotify ? 'Em pausa' : 'À espera de /play'),
+      text: playing
+        ? 'A tocar no Discord · sem Premium · sem app aberta'
+        : (spotify ? 'Em pausa' : 'À espera de /play · capa Spotify · clipe YouTube'),
     });
 
-  if (spotify?.albumArt) {
-    embed.setThumbnail(spotify.albumArt);
-  }
+  const links = [];
   if (spotify?.externalUrl) {
-    embed.setURL(spotify.externalUrl);
+    links.push(`[Spotify](${spotify.externalUrl})`);
   }
+  if (spotify?.youtubeUrl) {
+    links.push(`[Clipe YouTube](${spotify.youtubeUrl})`);
+  }
+
+  embed.setDescription(
+    [
+      spotify
+        ? `**${spotify.artists}**`
+        : 'Usa `/play` ou `/add` — nome, link Spotify ou YouTube. Não precisas do Spotify aberto nem de Premium.',
+      links.length ? links.join('  ·  ') : null,
+      spotify
+        ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
+        : null,
+      `🔊 ${volumeBar(volume)}`,
+      channelName ? `🎧 Canal **${channelName}** · fones cortados` : null,
+    ].filter(Boolean).join('\n'),
+  );
+
+  if (spotify?.albumArt) {
+    embed.setImage(spotify.albumArt);
+  }
+
+  const queueLines = queue.slice(0, 5).map((track, index) => (
+    `**${index + 1}.** ${track.title}${track.artists ? ` — ${track.artists}` : ''}`
+  ));
+  embed.addFields({
+    name: queueLength ? `📋 Fila · ${queueLength}` : '📋 Fila',
+    value: queueLines.join('\n').slice(0, 1024) || 'Vazia. `/add música` ou escolhe uma sugestão.',
+    inline: false,
+  });
+
+  if (playlists.length) {
+    embed.addFields({
+      name: '💿 Playlists',
+      value: playlists.map((item) => `**${item.name}** · ${item.tracks.length} faixas`).join('\n').slice(0, 1024),
+      inline: false,
+    });
+  }
+
+  if (suggestions.length) {
+    embed.addFields({
+      name: '✨ Sugestões',
+      value: suggestions.slice(0, 5).map((track) => `• ${track.title} — ${track.artists}`).join('\n').slice(0, 1024),
+      inline: false,
+    });
+  }
+
   if (lastError) {
     embed.addFields({ name: 'Aviso', value: lastError.slice(0, 1024) });
   }
 
-  const row = new ActionRowBuilder().addComponents(
+  const transport = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('spotify_prev').setLabel('⏮').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('spotify_playpause')
       .setLabel(playing ? '⏸' : '▶')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('spotify_next').setLabel('⏭').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_voldown').setLabel('🔉').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_volup').setLabel('🔊').setStyle(ButtonStyle.Secondary),
+  );
+
+  const extra = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('nox_save').setLabel('Playlist').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('nox_shuffle').setLabel('Shuffle').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_clip').setLabel('Clipe').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('spotify_leave').setLabel('Sair').setStyle(ButtonStyle.Danger),
   );
 
-  return { embeds: [embed], components: [row] };
+  const components = [transport, extra];
+
+  if (suggestions.length) {
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId('nox_suggest')
+      .setPlaceholder('Adicionar uma sugestão à fila')
+      .addOptions(
+        suggestions.slice(0, 5).map((track, index) => ({
+          label: String(track.title || 'Música').slice(0, 100),
+          description: String(track.artists || 'Spotify').slice(0, 100),
+          value: `${index}:${suggestionValue(track)}`.slice(0, 100),
+        })),
+      );
+    components.push(new ActionRowBuilder().addComponents(menu));
+  }
+
+  return { embeds: [embed], components };
 }
 
-module.exports = { buildPanel, formatClock, progressBar };
+module.exports = {
+  buildPanel,
+  formatClock,
+  progressBar,
+  volumeBar,
+  suggestionValue,
+};
