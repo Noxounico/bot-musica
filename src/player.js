@@ -22,8 +22,11 @@ const {
   entersState,
   VoiceConnectionStatus,
   StreamType,
+  generateDependencyReport,
 } = require('@discordjs/voice');
 const play = require('play-dl');
+
+console.log('[player] voice dependency report\n' + generateDependencyReport());
 
 class VoiceMirrorPlayer {
   constructor() {
@@ -79,8 +82,15 @@ class VoiceMirrorPlayer {
       adapterCreator: channel.guild.voiceAdapterCreator,
       selfDeaf: true,
       selfMute: false,
+      daveEncryption: true,
     });
     this.channelId = channel.id;
+    this.connection.on('stateChange', (oldState, newState) => {
+      console.log(`[player] voice ${oldState.status} -> ${newState.status}`);
+    });
+    this.connection.on('error', (error) => {
+      console.error('[player] voice connection error:', error.message);
+    });
     this.connection.subscribe(this.player);
 
     try {
