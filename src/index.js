@@ -8,6 +8,7 @@ const config = require('./config');
 const { parsePrefixCommand } = require('./prefix');
 const { SpotifyMirrorSync } = require('./sync');
 const playlists = require('./playlists');
+const { deleteStaleBotMessages } = require('./cleanup');
 const {
   COMMAND_NAMES,
   registerSlashCommands,
@@ -73,17 +74,20 @@ async function ensurePanel(channel) {
   }
   if (mirror.panelMessage) {
     await mirror.refreshPanel();
-    return mirror.panelMessage;
+  } else if (mirror.panelChannel?.send) {
+    const sent = await mirror.panelChannel.send({
+      content: mirror.panelContent(),
+      ...mirror.panelPayload(),
+    });
+    mirror.attachPanel(sent);
   }
-  if (!mirror.panelChannel?.send) {
-    return null;
-  }
-  const sent = await mirror.panelChannel.send({
-    content: mirror.panelContent(),
-    ...mirror.panelPayload(),
+
+  const panel = mirror.panelMessage;
+  await deleteStaleBotMessages(mirror.panelChannel, {
+    keepId: panel?.id,
+    botId: panel?.client?.user?.id || mirror.panelChannel?.client?.user?.id,
   });
-  mirror.attachPanel(sent);
-  return sent;
+  return panel;
 }
 
 async function runCommand(command, { member, reply, args, channel }) {
@@ -254,7 +258,11 @@ client.on('messageCreate', async (message) => {
       member: message.member,
       args: parsed.args,
       channel: message.channel,
-      reply: (payload) => message.reply(typeof payload === 'string' ? payload : payload),
+      reply: async (payload) => {
+        const sent = await message.reply(typeof payload === 'string' ? payload : payload);
+        sent.delete().catch(() => {});
+        return sent;
+      },
     });
   } catch (error) {
     console.error('[discord] Command error:', error);
@@ -283,7 +291,7 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
 
     if (command === 'playlist') {
       await handlePlaylist(interaction);
