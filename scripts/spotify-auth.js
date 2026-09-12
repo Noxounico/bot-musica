@@ -17,6 +17,8 @@ const PORT = Number(process.env.SPOTIFY_AUTH_PORT || 8888);
 const SCOPES = [
   'user-read-playback-state',
   'user-read-currently-playing',
+  'user-modify-playback-state',
+  'user-read-private',
 ].join(' ');
 
 if (!CLIENT_ID || !CLIENT_SECRET) {

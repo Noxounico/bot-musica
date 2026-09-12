@@ -9,6 +9,7 @@ class SpotifyClient {
     this.refreshToken = refreshToken;
     this.accessToken = null;
     this.accessTokenExpiresAt = 0;
+    this.me = null;
   }
 
   async getAccessToken() {
@@ -55,10 +56,14 @@ class SpotifyClient {
 
     const artists = (item.artists || []).map((artist) => artist.name).join(', ');
 
+    const images = item.album?.images || item.images || [];
+
     return {
       trackId: item.id,
       title: item.name,
       artists,
+      albumArt: images[0]?.url || null,
+      externalUrl: item.external_urls?.spotify || null,
       durationMs: item.duration_ms || 0,
       progressMs: data.progress_ms || 0,
       isPlaying: Boolean(data.is_playing),
@@ -99,6 +104,68 @@ class SpotifyClient {
     }
 
     return this.normalizePlayback(await response.json());
+  }
+
+  async getMe() {
+    if (this.me) {
+      return this.me;
+    }
+
+    const token = await this.getAccessToken();
+    const response = await fetch('https://api.spotify.com/v1/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      return { displayName: null, imageUrl: null };
+    }
+
+    const data = await response.json();
+    this.me = {
+      displayName: data.display_name || data.id || null,
+      imageUrl: data.images?.[0]?.url || null,
+    };
+    return this.me;
+  }
+
+  async control(method, path) {
+    const token = await this.getAccessToken();
+    const response = await fetch(`https://api.spotify.com/v1/me/player${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (response.status === 204 || response.ok) {
+      return;
+    }
+
+    if (response.status === 403) {
+      throw new Error(
+        'Sem permissão para controlar o Spotify. Volta a autorizar em /spotify (precisa de Premium e do scope user-modify-playback-state).',
+      );
+    }
+
+    if (response.status === 404) {
+      throw new Error('Não há um dispositivo Spotify ativo. Abre o Spotify no telemóvel ou no PC.');
+    }
+
+    throw new Error(`Spotify control failed (${response.status}): ${(await response.text()).slice(0, 180)}`);
+  }
+
+  pausePlayback() {
+    return this.control('PUT', '/pause');
+  }
+
+  resumePlayback() {
+    return this.control('PUT', '/play');
+  }
+
+  nextTrack() {
+    return this.control('POST', '/next');
+  }
+
+  previousTrack() {
+    return this.control('POST', '/previous');
   }
 }
 

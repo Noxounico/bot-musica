@@ -62,11 +62,12 @@ npm start
 
 No Discord:
 
-- `!entrar` ou `/entrar` — entra no teu canal de voz e começa a espelhar o Spotify
-- `!sair` ou `/sair` — para e sai do canal
-- `!status` ou `/status` — estado atual
+- `/entrar` — entra no voice (fones cortados) e abre o painel Spotify
+- `/painel` — volta a publicar o painel
+- `/sair` — sai do voice
+- No painel: ⏮ ▶/⏸ ⏭ e **Sair**
 
-Usa o menu do Discord: escreve `/` e clica **entrar**. O bot não pede Message Content Intent (esse intent derrubava o login).
+Os botões controlam a tua conta Spotify. Depois de atualizar o bot, volta a autorizar em `/spotify` (novos scopes).
 
 ## Como funciona
 
