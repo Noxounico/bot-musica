@@ -24,14 +24,23 @@ class SpotifyMirrorSync {
     this.onTrack = null;
     this.guildId = null;
     this.suggestions = [];
+    this.advancing = false;
+    this.endTimer = null;
 
     this.player.onIdle = () => {
-      this.next({ fromIdle: true }).catch((error) => {
-        this.lastError = error.message;
-        console.error('[sync] Auto-next failed:', error.message);
-        this.refreshPanel();
-      });
+      this.autoAdvance('idle');
     };
+  }
+
+  autoAdvance(reason) {
+    if (this.advancing || !this.current) {
+      return;
+    }
+    this.next({ fromIdle: true }).catch((error) => {
+      this.lastError = error.message;
+      console.error(`[sync] Auto-next failed (${reason}):`, error.message);
+      this.refreshPanel();
+    });
   }
 
   async join(channel, account) {
@@ -50,6 +59,7 @@ class SpotifyMirrorSync {
     this.current = null;
     this.channelName = null;
     this.suggestions = [];
+    this.clearEndTimer();
     const panel = this.panelMessage;
     this.panelMessage = null;
     this.panelChannel = panel?.channel || this.panelChannel;
@@ -181,7 +191,7 @@ class SpotifyMirrorSync {
 
     const track = await this.resolveTrack(query);
 
-    if (!replace && this.current && this.player.currentTrackId) {
+    if (!replace && this.current) {
       this.queue.push(track);
       this.lastError = null;
       await this.refreshPanel();
@@ -219,10 +229,32 @@ class SpotifyMirrorSync {
     if (this.onTrack) {
       this.onTrack(this.currentState());
     }
+    this.armEndTimer(track);
     await this.refreshPanel();
     this.refreshSuggestions().catch((error) => {
       console.error('[sync] Suggestions failed:', error.message);
     });
+  }
+
+  clearEndTimer() {
+    if (this.endTimer) {
+      clearTimeout(this.endTimer);
+      this.endTimer = null;
+    }
+  }
+
+  armEndTimer(track) {
+    this.clearEndTimer();
+    const duration = Number(track?.durationMs);
+    if (!duration || duration < 4000) {
+      return;
+    }
+    const trackId = track.trackId;
+    this.endTimer = setTimeout(() => {
+      if (this.current?.trackId === trackId && !this.player.isPaused) {
+        this.autoAdvance('duration');
+      }
+    }, duration + 2000);
   }
 
   async refreshSuggestions() {
@@ -297,26 +329,39 @@ class SpotifyMirrorSync {
   }
 
   async next({ fromIdle = false } = {}) {
-    if (this.current) {
-      this.history.push(this.current);
-    }
-
-    const upcoming = this.queue.shift();
-    if (!upcoming) {
-      this.current = null;
-      this.player.quietStop();
-      await this.refreshPanel();
+    if (this.advancing) {
       return null;
     }
+    this.advancing = true;
+    this.clearEndTimer();
 
     try {
-      await this.startTrack(upcoming);
-      return upcoming;
-    } catch (error) {
-      if (fromIdle) {
-        throw error;
+      if (this.current) {
+        this.history.push(this.current);
       }
-      return this.next({ fromIdle });
+
+      while (true) {
+        let upcoming = this.queue.shift();
+        if (!upcoming && fromIdle) {
+          upcoming = this.suggestions.shift();
+        }
+        if (!upcoming) {
+          this.current = null;
+          this.player.quietStop();
+          await this.refreshPanel();
+          return null;
+        }
+
+        try {
+          await this.startTrack(upcoming);
+          return upcoming;
+        } catch (error) {
+          this.lastError = error.message;
+          console.error('[sync] Next track failed:', error.message);
+        }
+      }
+    } finally {
+      this.advancing = false;
     }
   }
 

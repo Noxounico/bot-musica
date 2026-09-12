@@ -54,8 +54,9 @@ No Discord:
 3. `/play` ou `/tocar` com o nome da música — ou um link do YouTube / Spotify
    Se o Discord mostrar o `/play` de outro bot, escolhe o **NoxMusic** ou usa `/tocar`.
 4. O painel **é a mesma mensagem**: quando mudas de faixa (⏭, `/play`, playlist) o título, a capa e o texto atualizam ali.
-5. `/add` mete na fila sem trocar a atual. `/volume 40` ou 🔉/🔊. `/playlist criar festa`.
-6. No painel: ⏮ ▶/⏸ ⏭ 🔉 🔊 · Playlist · Shuffle · Clipe · Sair
+5. Quando uma música **acaba**, a seguinte da fila começa sozinha. Se a fila estiver vazia, toca uma sugestão.
+6. `/play` e `/add` metem na fila se já estiver a tocar. ⏭ salta já. `/volume 40` ou 🔉/🔊. `/playlist criar festa`.
+7. No painel: ⏮ ▶/⏸ ⏭ 🔉 🔊 · Playlist · Shuffle · Clipe · Sair
 
 `/sair` sai do voice. `/painel` volta a publicar o painel.
 

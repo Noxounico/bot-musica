@@ -166,3 +166,36 @@ test('changing track edits the same panel message immediately', async () => {
   assert.ok(edits.some((line) => /two/.test(line)));
   assert.match(edits.at(-1), /two/);
 });
+
+test('when a track ends the next queued song starts and the panel changes', async () => {
+  const { sync, player } = session();
+  const edits = [];
+  sync.attachPanel({
+    edit: async (payload) => {
+      edits.push(payload.content);
+      return payload;
+    },
+  });
+
+  await sync.playQuery('one');
+  await sync.playQuery('two');
+  assert.equal(player.played.length, 1);
+
+  await sync.next({ fromIdle: true });
+  assert.equal(player.played.at(-1), 'two');
+  assert.match(edits.at(-1), /two/);
+});
+
+test('when the queue is empty idle plays a suggestion', async () => {
+  const { sync, player } = session();
+  await sync.playQuery('one');
+  sync.suggestions = [{
+    title: 'sugestao',
+    artists: 'Spotify',
+    searchQuery: 'sugestao',
+    trackId: 'sugestao',
+  }];
+
+  await sync.next({ fromIdle: true });
+  assert.equal(player.played.at(-1), 'sugestao');
+});
