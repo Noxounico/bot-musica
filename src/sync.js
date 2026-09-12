@@ -112,9 +112,10 @@ class SpotifyMirrorSync {
       ...this.panelPayload(),
     };
 
-    if (this.panelMessage) {
+    const previous = this.panelMessage;
+    if (previous) {
       try {
-        const edited = await this.panelMessage.edit(payload);
+        const edited = await previous.edit(payload);
         if (edited && typeof edited.edit === 'function') {
           this.panelMessage = edited;
         }
@@ -128,6 +129,9 @@ class SpotifyMirrorSync {
     if (this.panelChannel?.send) {
       try {
         this.panelMessage = await this.panelChannel.send(payload);
+        if (previous && previous.id !== this.panelMessage?.id && typeof previous.delete === 'function') {
+          await previous.delete().catch(() => {});
+        }
         return this.panelMessage;
       } catch (error) {
         console.error('[sync] Panel send failed:', error.message);
