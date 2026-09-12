@@ -1,5 +1,6 @@
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_PLAYER_URL = 'https://api.spotify.com/v1/me/player';
+const SPOTIFY_CURRENT_URL = 'https://api.spotify.com/v1/me/player/currently-playing';
 
 class SpotifyClient {
   constructor({ clientId, clientSecret, refreshToken }) {
@@ -46,23 +47,8 @@ class SpotifyClient {
     return this.accessToken;
   }
 
-  async getPlaybackState() {
-    const token = await this.getAccessToken();
-    const response = await fetch(SPOTIFY_PLAYER_URL, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (response.status === 204) {
-      return null;
-    }
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Spotify playback request failed (${response.status}): ${text}`);
-    }
-
-    const data = await response.json();
-    const item = data.item;
+  normalizePlayback(data) {
+    const item = data?.item;
     if (!item) {
       return null;
     }
@@ -81,6 +67,38 @@ class SpotifyClient {
         : null,
       searchQuery: `${artists} - ${item.name}`,
     };
+  }
+
+  async fetchPlayer(url, token) {
+    return fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async getPlaybackState() {
+    const token = await this.getAccessToken();
+    let response = await this.fetchPlayer(SPOTIFY_PLAYER_URL, token);
+
+    if (response.status === 204) {
+      response = await this.fetchPlayer(SPOTIFY_CURRENT_URL, token);
+    }
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    if (response.status === 403) {
+      throw new Error(
+        'O Spotify recusou o playback (403). A conta que autorizaste precisa de Premium e de ter música a tocar.',
+      );
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Spotify playback request failed (${response.status}): ${text}`);
+    }
+
+    return this.normalizePlayback(await response.json());
   }
 }
 

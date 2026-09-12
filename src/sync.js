@@ -52,6 +52,12 @@ class SpotifyMirrorSync {
 
     const channelName = await this.player.join(channel);
     this.start();
+    try {
+      await this.tick();
+    } catch (error) {
+      this.lastError = error.message;
+      console.error('[sync] Initial poll error:', error.message);
+    }
     return channelName;
   }
 

@@ -1,3 +1,10 @@
+const dns = require('dns');
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch (_) {
+  // Node < 17
+}
+
 try {
   const ffmpegPath = require('ffmpeg-static');
   if (ffmpegPath) {
@@ -27,6 +34,8 @@ class VoiceMirrorPlayer {
     this.isPaused = false;
     this.volume = 1;
     this.loading = false;
+    this.channelId = null;
+    this.joining = null;
 
     this.player.on('error', (error) => {
       console.error('[player] Audio player error:', error.message);
@@ -39,26 +48,51 @@ class VoiceMirrorPlayer {
   }
 
   async join(channel) {
+    if (this.joining) {
+      return this.joining;
+    }
+
+    if (
+      this.connection
+      && this.channelId === channel.id
+      && this.connection.state.status === VoiceConnectionStatus.Ready
+    ) {
+      return channel.name;
+    }
+
+    this.joining = this.joinNow(channel).finally(() => {
+      this.joining = null;
+    });
+    return this.joining;
+  }
+
+  async joinNow(channel) {
     if (this.connection) {
       this.connection.destroy();
       this.connection = null;
+      this.channelId = null;
     }
 
     this.connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: channel.guild.id,
       adapterCreator: channel.guild.voiceAdapterCreator,
-      selfDeaf: false,
+      selfDeaf: true,
+      selfMute: false,
     });
-
+    this.channelId = channel.id;
     this.connection.subscribe(this.player);
 
     try {
-      await entersState(this.connection, VoiceConnectionStatus.Ready, 15_000);
+      await entersState(this.connection, VoiceConnectionStatus.Ready, 30_000);
     } catch (error) {
-      this.connection.destroy();
+      const status = this.connection?.state?.status;
+      this.connection?.destroy();
       this.connection = null;
-      throw new Error(`Failed to join voice channel: ${error.message}`);
+      this.channelId = null;
+      throw new Error(
+        `Não consegui entrar no voice (${error.message}${status ? `, estado ${status}` : ''}). Confirma Connect/Speak e tenta outra vez.`,
+      );
     }
 
     return channel.name;
@@ -75,6 +109,7 @@ class VoiceMirrorPlayer {
       this.connection.destroy();
       this.connection = null;
     }
+    this.channelId = null;
   }
 
   isConnected() {
