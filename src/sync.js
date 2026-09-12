@@ -44,6 +44,12 @@ class SpotifyMirrorSync {
   }
 
   async join(channel) {
+    if (!this.spotify.clientId || !this.spotify.clientSecret || !this.spotify.refreshToken) {
+      throw new Error(
+        'Faltam SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET ou SPOTIFY_REFRESH_TOKEN nas variáveis do Railway.',
+      );
+    }
+
     const channelName = await this.player.join(channel);
     this.start();
     return channelName;
