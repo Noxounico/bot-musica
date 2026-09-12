@@ -1,20 +1,21 @@
 {
-  "name": "game-shop-bot",
+  "name": "bot-musica",
   "version": "1.0.0",
+  "description": "Discord bot that mirrors Spotify playback (AxeyBot-style)",
   "private": true,
   "type": "commonjs",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node index.js",
-    "seed": "node seed.js"
+    "start": "node src/index.js",
+    "auth:spotify": "node scripts/spotify-auth.js"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=20"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.0",
-    "better-sqlite3": "^11.3.0",
+    "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.27.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "play-dl": "^1.9.7"
   }
 }
