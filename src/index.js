@@ -5,6 +5,7 @@ const {
   REST,
   Routes,
   EmbedBuilder,
+  ActivityType,
 } = require('discord.js');
 const { listenForPlatform } = require('./health');
 const config = require('./config');
@@ -97,7 +98,21 @@ async function runCommand(command, { member, reply }) {
     }
 
     const channelName = await mirror.join(voiceChannel);
-    await reply(`A espelhar o Spotify em **${channelName}**. Muda música, pausa ou avança no Spotify — o bot segue.`);
+    const status = mirror.getStatus();
+    if (status.spotify) {
+      setListeningActivity(status.spotify);
+    }
+
+    const embed = statusEmbed();
+    embed.setDescription(
+      `Entrei em **${channelName}** com os fones cortados. Muda música no Spotify — o bot segue.`,
+    );
+    await reply({
+      content: status.spotify
+        ? `Spotify: **${status.spotify.artists} — ${status.spotify.title}**`
+        : (status.lastError || 'Spotify: nada a tocar. Abre o Spotify e mete uma música.'),
+      embeds: [embed],
+    });
     return;
   }
 
@@ -119,6 +134,15 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
   ],
 });
+
+function setListeningActivity(spotify) {
+  if (!client.user || !spotify) {
+    return;
+  }
+  client.user.setActivity(`${spotify.artists} — ${spotify.title}`, {
+    type: ActivityType.Listening,
+  });
+}
 
 client.once('ready', async () => {
   console.log(`[discord] Logged in as ${client.user.tag}`);
