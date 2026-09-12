@@ -55,6 +55,7 @@ class VoiceMirrorPlayer {
 
     this.ignoreIdle = false;
     this.onIdle = null;
+    this.lastYouTubeUrl = null;
 
     this.player.on('error', (error) => {
       console.error('[player] Audio player error:', error.message);
@@ -209,6 +210,7 @@ class VoiceMirrorPlayer {
     try {
       const seekSeconds = Math.max(0, Math.floor(progressMs / 1000));
       const stream = await this.openAudioStream({ searchQuery, youtubeUrl, seekSeconds });
+      this.lastYouTubeUrl = stream.youtubeUrl || normalizeYouTubeUrl(youtubeUrl || searchQuery);
 
       const resource = createAudioResource(stream.stream, {
         inputType: stream.type === 'opus' ? StreamType.Opus : StreamType.Arbitrary,
@@ -255,20 +257,23 @@ class VoiceMirrorPlayer {
 
     for (const url of candidates) {
       try {
-        return await play.stream(url, { seek: seekSeconds });
+        const stream = await play.stream(url, { seek: seekSeconds });
+        return { ...stream, youtubeUrl: url };
       } catch (error) {
         errors.push(`youtube ${error.message}`);
       }
 
       try {
-        return await this.streamWithYtdlp(url);
+        const stream = await this.streamWithYtdlp(url);
+        return { ...stream, youtubeUrl: url };
       } catch (error) {
         errors.push(`yt-dlp ${error.message}`);
       }
     }
 
     try {
-      return await this.streamFromSoundCloud(searchQuery);
+      const stream = await this.streamFromSoundCloud(searchQuery);
+      return { ...stream, youtubeUrl: candidates[0] || null };
     } catch (error) {
       errors.push(`soundcloud ${error.message}`);
     }

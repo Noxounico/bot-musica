@@ -87,6 +87,12 @@ function buildPanel({
     ].filter(Boolean).join('\n'),
   );
 
+  if (spotify?.youtubeUrl) {
+    embed.setURL(spotify.youtubeUrl);
+  } else if (spotify?.externalUrl) {
+    embed.setURL(spotify.externalUrl);
+  }
+
   if (spotify?.albumArt) {
     embed.setImage(spotify.albumArt);
   }
