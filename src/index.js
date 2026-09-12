@@ -117,7 +117,6 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -162,18 +161,11 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   try {
-    if (command === 'entrar') {
-      await interaction.deferReply();
-    }
+    await interaction.deferReply();
 
     await runCommand(command, {
       member: interaction.member,
-      reply: async (payload) => {
-        if (interaction.deferred || interaction.replied) {
-          return interaction.editReply(payload);
-        }
-        return interaction.reply(payload);
-      },
+      reply: async (payload) => interaction.editReply(payload),
     });
   } catch (error) {
     console.error('[discord] Command error:', error);

@@ -32,7 +32,7 @@ Copia `.env.example` para `.env` e preenche:
 
 1. Cria uma aplicação em https://discord.com/developers/applications
 2. Em **Bot**, gera um token → `DISCORD_TOKEN`
-3. Ativa **Message Content Intent** (obrigatório para `!entrar` / `!sair` / `!status`)
+3. Permissões do bot: **Connect** e **Speak**. Usa `/entrar` no menu do Discord.
 4. Em **OAuth2 → URL Generator**, scopes: `bot`, `applications.commands`
 5. Permissões do bot: `Connect`, `Speak`, `Use Voice Activity`
 6. Convida o bot para o teu servidor
@@ -66,7 +66,7 @@ No Discord:
 - `!sair` ou `/sair` — para e sai do canal
 - `!status` ou `/status` — estado atual
 
-Podes escrever `!entrar` ou `/entrar` no chat. Para o menu do Discord ao carregar `/`, espera o bot registar o comando no servidor. No Developer Portal → Bot → liga **Message Content Intent**.
+Usa o menu do Discord: escreve `/` e clica **entrar**. O bot não pede Message Content Intent (esse intent derrubava o login).
 
 ## Como funciona
 
