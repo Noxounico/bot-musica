@@ -1,3 +1,12 @@
+try {
+  const ffmpegPath = require('ffmpeg-static');
+  if (ffmpegPath) {
+    process.env.FFMPEG_PATH = ffmpegPath;
+  }
+} catch (_) {
+  // Aptfile/system ffmpeg is the fallback on Railway
+}
+
 const {
   createAudioPlayer,
   createAudioResource,
