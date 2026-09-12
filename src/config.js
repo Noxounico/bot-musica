@@ -2,7 +2,7 @@ require('dotenv').config();
 
 function firstEnv(...names) {
   for (const name of names) {
-    const value = process.env[name];
+    const value = typeof process.env[name] === 'string' ? process.env[name].trim() : '';
     if (value) {
       return value;
     }

@@ -1,11 +1,16 @@
 const SCOPES = ['user-read-playback-state', 'user-read-currently-playing'].join(' ');
 
 function spotifyRedirectUri() {
-  if (process.env.SPOTIFY_REDIRECT_URI) {
-    return process.env.SPOTIFY_REDIRECT_URI;
+  const configured = typeof process.env.SPOTIFY_REDIRECT_URI === 'string'
+    ? process.env.SPOTIFY_REDIRECT_URI.trim()
+    : '';
+  if (configured) {
+    return configured;
   }
 
-  const domain = process.env.RAILWAY_PUBLIC_DOMAIN;
+  const domain = typeof process.env.RAILWAY_PUBLIC_DOMAIN === 'string'
+    ? process.env.RAILWAY_PUBLIC_DOMAIN.trim()
+    : '';
   if (domain) {
     return `https://${domain}/callback`;
   }
