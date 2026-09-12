@@ -59,17 +59,27 @@ class VoiceMirrorPlayer {
     this.player.on('error', (error) => {
       console.error('[player] Audio player error:', error.message);
       this.loading = false;
+      this.emitIdle();
+    });
+
+    this.player.on(AudioPlayerStatus.Playing, () => {
+      this.loading = false;
+      this.ignoreIdle = false;
     });
 
     this.player.on(AudioPlayerStatus.Idle, () => {
       this.loading = false;
-      if (this.ignoreIdle) {
-        return;
-      }
-      if (typeof this.onIdle === 'function') {
-        this.onIdle();
-      }
+      this.emitIdle();
     });
+  }
+
+  emitIdle() {
+    if (this.ignoreIdle) {
+      return;
+    }
+    if (typeof this.onIdle === 'function') {
+      this.onIdle();
+    }
   }
 
   async join(channel) {
@@ -223,15 +233,23 @@ class VoiceMirrorPlayer {
       this.currentTrackId = trackId;
       this.currentQuery = searchQuery;
       this.isPaused = false;
+
+      try {
+        await entersState(this.player, AudioPlayerStatus.Playing, 15_000);
+        this.ignoreIdle = false;
+      } catch (_) {
+        this.ignoreIdle = false;
+        if (this.player.state.status === AudioPlayerStatus.Idle) {
+          this.emitIdle();
+        }
+      }
     } catch (error) {
       this.currentTrackId = null;
       this.currentQuery = null;
+      this.ignoreIdle = false;
       throw new Error(`Não consegui tocar "${searchQuery}": ${error.message}`);
     } finally {
       this.loading = false;
-      setTimeout(() => {
-        this.ignoreIdle = false;
-      }, 500);
     }
   }
 

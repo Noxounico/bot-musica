@@ -107,8 +107,9 @@ async function runCommand(command, { member, reply, args, channel }) {
 
     await ensureJoined(member);
     mirror.panelChannel = channel || member?.voice?.channel;
-    const replace = command !== 'add';
-    const result = await mirror.playQuery(query, memberAccount(member), { replace });
+    const result = await mirror.playQuery(query, memberAccount(member), {
+      replace: false,
+    });
     await ensurePanel(mirror.panelChannel);
     const content = result.queued
       ? `**${result.track.title}** ficou na fila (posição ${result.position}).`
