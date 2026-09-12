@@ -24,7 +24,20 @@ const {
   StreamType,
   generateDependencyReport,
 } = require('@discordjs/voice');
+const { Readable } = require('stream');
 const play = require('play-dl');
+const { extractYouTubeId, normalizeYouTubeUrl } = require('./youtube');
+
+let soundCloudReady = null;
+
+async function ensureSoundCloud() {
+  if (!soundCloudReady) {
+    soundCloudReady = play.getFreeClientID().then((clientId) => (
+      play.setToken({ soundcloud: { client_id: clientId } })
+    ));
+  }
+  await soundCloudReady;
+}
 
 console.log('[player] voice dependency report\n' + generateDependencyReport());
 
@@ -175,7 +188,7 @@ class VoiceMirrorPlayer {
     this.isPaused = false;
   }
 
-  async playTrack({ trackId, searchQuery, progressMs = 0 }) {
+  async playTrack({ trackId, searchQuery, youtubeUrl = null, progressMs = 0 }) {
     if (!this.isConnected()) {
       throw new Error('O bot não está num canal de voz. Usa /entrar primeiro.');
     }
@@ -185,9 +198,8 @@ class VoiceMirrorPlayer {
     this.player.stop(true);
 
     try {
-      const url = await this.resolveYouTubeUrl(searchQuery);
       const seekSeconds = Math.max(0, Math.floor(progressMs / 1000));
-      const stream = await play.stream(url, { seek: seekSeconds });
+      const stream = await this.openAudioStream({ searchQuery, youtubeUrl, seekSeconds });
 
       const resource = createAudioResource(stream.stream, {
         inputType: stream.type === 'opus' ? StreamType.Opus : StreamType.Arbitrary,
@@ -214,23 +226,106 @@ class VoiceMirrorPlayer {
     }
   }
 
-  async resolveYouTubeUrl(query) {
-    if (/youtube\.com\/watch|youtu\.be\//i.test(query)) {
-      return query;
+  async openAudioStream({ searchQuery, youtubeUrl, seekSeconds }) {
+    const errors = [];
+    const candidates = [];
+
+    const normalized = normalizeYouTubeUrl(youtubeUrl || searchQuery);
+    if (normalized) {
+      candidates.push(normalized);
+    }
+
+    try {
+      const searched = await this.searchYouTubeUrl(searchQuery);
+      if (searched && !candidates.includes(searched)) {
+        candidates.push(searched);
+      }
+    } catch (error) {
+      errors.push(error.message);
+    }
+
+    for (const url of candidates) {
+      try {
+        return await play.stream(url, { seek: seekSeconds });
+      } catch (error) {
+        errors.push(`youtube ${error.message}`);
+      }
+
+      try {
+        return await this.streamWithYtdlp(url);
+      } catch (error) {
+        errors.push(`yt-dlp ${error.message}`);
+      }
+    }
+
+    try {
+      return await this.streamFromSoundCloud(searchQuery);
+    } catch (error) {
+      errors.push(`soundcloud ${error.message}`);
+    }
+
+    throw new Error(
+      'O YouTube recusou o link (share `youtu.be` / bloqueio de bot). Tenta `/play` com o nome da música.',
+    );
+  }
+
+  async searchYouTubeUrl(query) {
+    if (extractYouTubeId(query)) {
+      return normalizeYouTubeUrl(query);
     }
 
     const results = await play.search(query, { limit: 3, source: { youtube: 'video' } });
-    if (!results.length) {
-      throw new Error(`No YouTube match for "${query}"`);
-    }
-
     for (const result of results) {
       if (result.url) {
         return result.url;
       }
     }
+    throw new Error(`Sem resultado no YouTube para "${query}"`);
+  }
 
-    throw new Error(`No playable URL for "${query}"`);
+  async streamWithYtdlp(url) {
+    let ytdl;
+    try {
+      ytdl = require('youtube-dl-exec');
+    } catch (error) {
+      throw new Error('yt-dlp não está instalado');
+    }
+
+    const info = await ytdl(url, {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      noPlaylist: true,
+      skipDownload: true,
+      format: 'bestaudio/best',
+    });
+    const audioUrl = info.url || info.requested_formats?.find((item) => item.url)?.url;
+    if (!audioUrl) {
+      throw new Error('yt-dlp não devolveu URL de áudio');
+    }
+
+    const response = await fetch(audioUrl, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok || !response.body) {
+      throw new Error(`áudio HTTP ${response.status}`);
+    }
+
+    return { stream: Readable.fromWeb(response.body), type: 'arbitrary' };
+  }
+
+  async streamFromSoundCloud(query) {
+    await ensureSoundCloud();
+    const results = await play.search(query, { limit: 3, source: { soundcloud: 'tracks' } });
+    for (const result of results) {
+      if (!result.url) {
+        continue;
+      }
+      try {
+        return await play.stream(result.url);
+      } catch (_) {
+        // try the next SoundCloud match
+      }
+    }
+    throw new Error(`Sem áudio no SoundCloud para "${query}"`);
   }
 
   getStatus() {

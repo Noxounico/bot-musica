@@ -59,13 +59,14 @@ No Discord:
 
 ## Como funciona
 
-1. `/play` resolve o nome (Spotify Search se houver credenciais, senão o texto cru).
-2. O bot procura o vídeo no YouTube e toca no canal de voz.
-3. Os botões avançam, recuam, pausam e retomam **a fila do Discord**.
+1. `/play` aceita nome, link YouTube (`youtu.be` / `watch`) ou link Spotify.
+2. Links `youtu.be?si=` são limpos para `youtube.com/watch?v=...`.
+3. Se o YouTube recusar o stream (bot check), o bot tenta SoundCloud com o mesmo título.
+4. Os botões avançam, recuam, pausam e retomam **a fila do Discord**.
 
 ## Limitações
 
-- O áudio vem do YouTube, não do Spotify — pode não ser exatamente a mesma versão.
+- O áudio vem do YouTube (ou SoundCloud se o YouTube bloquear o servidor).
 - Comandos escritos como texto (`/entrar` no chat) não funcionam: o bot não pede Message Content. Usa o menu `/`.
 
 ## Estrutura

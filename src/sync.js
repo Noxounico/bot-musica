@@ -1,6 +1,7 @@
 const { SpotifyClient } = require('./spotify');
 const { VoiceMirrorPlayer } = require('./player');
 const { buildPanel } = require('./panel');
+const { extractYouTubeId, fetchOEmbed, watchUrl } = require('./youtube');
 
 class SpotifyMirrorSync {
   constructor(config, deps = {}) {
@@ -97,6 +98,26 @@ class SpotifyMirrorSync {
   }
 
   async resolveTrack(query) {
+    const youtubeId = extractYouTubeId(query);
+    if (youtubeId) {
+      const meta = await fetchOEmbed(youtubeId);
+      if (!meta) {
+        throw new Error(
+          'Esse link do YouTube não é válido ou o vídeo está indisponível. Usa `/play` com o nome da música, por exemplo `/play TA PEDINDO TOMA`.',
+        );
+      }
+      return {
+        trackId: youtubeId,
+        title: meta.title,
+        artists: meta.author,
+        albumArt: meta.thumbnail,
+        externalUrl: watchUrl(youtubeId),
+        durationMs: 0,
+        searchQuery: `${meta.author} - ${meta.title}`,
+        youtubeUrl: watchUrl(youtubeId),
+      };
+    }
+
     const found = this.spotify.enabled() ? await this.spotify.resolve(query) : null;
     return found || {
       trackId: query,
@@ -136,6 +157,7 @@ class SpotifyMirrorSync {
       await this.player.playTrack({
         trackId: track.trackId,
         searchQuery: track.searchQuery || `${track.artists} - ${track.title}`,
+        youtubeUrl: track.youtubeUrl || null,
         progressMs: 0,
       });
     } catch (error) {
