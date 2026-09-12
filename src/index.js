@@ -37,22 +37,28 @@ const slashCommands = [
     .setDescription('Mostra o estado atual do Spotify e do Discord'),
 ].map((command) => command.toJSON());
 
-async function registerSlashCommands() {
+async function registerSlashCommands(client) {
   if (!config.discordToken || !config.discordClientId) {
     return;
   }
 
   const rest = new REST({ version: '10' }).setToken(config.discordToken);
   const body = { body: slashCommands };
-
+  const guildIds = new Set(client.guilds.cache.map((guild) => guild.id));
   if (config.discordGuildId) {
-    await rest.put(Routes.applicationGuildCommands(config.discordClientId, config.discordGuildId), body);
-    console.log(`[discord] Registered guild commands for ${config.discordGuildId}`);
+    guildIds.add(config.discordGuildId);
+  }
+
+  if (guildIds.size === 0) {
+    await rest.put(Routes.applicationCommands(config.discordClientId), body);
+    console.log('[discord] Registered global slash commands (no guilds cached yet)');
     return;
   }
 
-  await rest.put(Routes.applicationCommands(config.discordClientId), body);
-  console.log('[discord] Registered global slash commands (!entrar also works)');
+  for (const guildId of guildIds) {
+    await rest.put(Routes.applicationGuildCommands(config.discordClientId, guildId), body);
+    console.log(`[discord] Registered guild commands for ${guildId}`);
+  }
 }
 
 function statusEmbed() {
@@ -118,7 +124,7 @@ const client = new Client({
 client.once('ready', async () => {
   console.log(`[discord] Logged in as ${client.user.tag}`);
   try {
-    await registerSlashCommands();
+    await registerSlashCommands(client);
   } catch (error) {
     console.error('[discord] Failed to register slash commands:', error.message);
   }

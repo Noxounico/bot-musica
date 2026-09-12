@@ -66,7 +66,7 @@ No Discord:
 - `!sair` ou `/sair` — para e sai do canal
 - `!status` ou `/status` — estado atual
 
-Para `!` funcionar, no Discord Developer Portal → Bot → liga **Message Content Intent**. Sem isso usa `/entrar`.
+Podes escrever `!entrar` ou `/entrar` no chat. Para o menu do Discord ao carregar `/`, espera o bot registar o comando no servidor. No Developer Portal → Bot → liga **Message Content Intent**.
 
 ## Como funciona
 
