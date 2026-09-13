@@ -59,4 +59,44 @@ function parsePlaylistArgs(args) {
   return { sub, name: rest || null, query: null };
 }
 
-module.exports = { PREFIX, PREFIXES, hint, parsePrefixCommand, parsePlaylistArgs };
+function parseChatCommand(content, { botId, commandNames = [] } = {}) {
+  const original = String(content || '').trim();
+  if (!original) {
+    return null;
+  }
+
+  const mentionRe = botId ? new RegExp(`^<@!?${botId}>\\s*`) : null;
+  let mentioned = false;
+  let rest = original;
+  if (mentionRe && mentionRe.test(rest)) {
+    mentioned = true;
+    rest = rest.replace(mentionRe, '').trim();
+  }
+
+  const prefixed = parsePrefixCommand(rest);
+  if (prefixed && (!commandNames.length || commandNames.includes(prefixed.name))) {
+    return prefixed;
+  }
+
+  if (!mentioned || !rest) {
+    return null;
+  }
+
+  const space = rest.search(/\s+/);
+  const first = (space === -1 ? rest : rest.slice(0, space)).toLowerCase();
+  const args = space === -1 ? '' : rest.slice(space).trim();
+  if (commandNames.includes(first)) {
+    return { name: first, args };
+  }
+
+  return { name: 'play', args: rest };
+}
+
+module.exports = {
+  PREFIX,
+  PREFIXES,
+  hint,
+  parsePrefixCommand,
+  parsePlaylistArgs,
+  parseChatCommand,
+};

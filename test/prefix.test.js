@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePrefixCommand, parsePlaylistArgs, hint } = require('../src/prefix');
+const { parsePrefixCommand, parsePlaylistArgs, parseChatCommand, hint } = require('../src/prefix');
 
 test('parsePrefixCommand reads name and remaining query', () => {
   assert.deepEqual(parsePrefixCommand('!play bohemian rhapsody'), {
@@ -21,4 +21,27 @@ test('parsePlaylistArgs reads !playlist subcommands', () => {
   });
   assert.deepEqual(parsePlaylistArgs('tocar sessao'), { sub: 'tocar', name: 'sessao', query: null });
   assert.deepEqual(parsePlaylistArgs(''), { sub: 'lista', name: null, query: null });
+});
+
+test('parseChatCommand reads !play and mentions without a slash menu', () => {
+  const names = ['play', 'add', 'entrar'];
+  assert.deepEqual(
+    parseChatCommand('!play mtg ficar legal', { commandNames: names }),
+    { name: 'play', args: 'mtg ficar legal' },
+  );
+  assert.deepEqual(
+    parseChatCommand('<@1548283020371435570> !play mtg ficar legal', {
+      botId: '1548283020371435570',
+      commandNames: names,
+    }),
+    { name: 'play', args: 'mtg ficar legal' },
+  );
+  assert.deepEqual(
+    parseChatCommand('<@1548283020371435570> mtg ficar legal', {
+      botId: '1548283020371435570',
+      commandNames: names,
+    }),
+    { name: 'play', args: 'mtg ficar legal' },
+  );
+  assert.equal(parseChatCommand('', { commandNames: names }), null);
 });

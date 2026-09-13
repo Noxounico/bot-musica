@@ -78,10 +78,10 @@ function buildPanel({
       `👤 Quem manda: **${controllerName}**`,
       spotify
         ? `**${spotify.artists}**`
-        : 'Usa `!play` ou `!add` — nome, link Spotify ou YouTube. Não precisas do Spotify aberto nem de Premium. ▶ no painel toca as sugestões sozinhas.',
+        : 'Clica **Tocar** ou escreve `!play mtg ficar legal`. Também podes mencionar o bot. Não precisas do Spotify aberto nem de Premium.',
       links.length ? links.join('  ·  ') : null,
       spotify
-        ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
+        ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\`\n◀ −15s / +15s ▶  ·  \`!atras\` \`!avancar\` \`!seek 1:30\``
         : null,
       `🔊 ${volumeBar(volume)}`,
       channelName ? `🎧 Canal **${channelName}** · fones cortados` : null,
@@ -131,6 +131,13 @@ function buildPanel({
     embed.addFields({ name: 'Aviso', value: lastError.slice(0, 1024) });
   }
 
+  const seek = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('nox_seek_back30').setLabel('−30s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_back15').setLabel('−15s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_fwd15').setLabel('+15s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_fwd30').setLabel('+30s').setStyle(ButtonStyle.Secondary),
+  );
+
   const transport = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('spotify_prev').setLabel('⏮').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
@@ -143,13 +150,14 @@ function buildPanel({
   );
 
   const extra = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('nox_save').setLabel('Playlist').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('nox_play').setLabel('Tocar').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('nox_save').setLabel('Playlist').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('nox_shuffle').setLabel('Shuffle').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('nox_clip').setLabel('Clipe').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('spotify_leave').setLabel('Sair').setStyle(ButtonStyle.Danger),
   );
 
-  const components = [transport, extra];
+  const components = spotify ? [seek, transport, extra] : [transport, extra];
 
   if (suggestions.length) {
     const menu = new StringSelectMenuBuilder()

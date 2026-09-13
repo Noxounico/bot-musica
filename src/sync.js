@@ -5,6 +5,7 @@ const { extractYouTubeId, fetchOEmbed, watchUrl } = require('./youtube');
 const playlists = require('./playlists');
 const { resolveClipUrl, publishClip } = require('./clip');
 const { mergeController } = require('./account');
+const { clampSeekMs } = require('./seek');
 
 class SpotifyMirrorSync {
   constructor(config, deps = {}) {
@@ -242,6 +243,46 @@ class SpotifyMirrorSync {
     this.refreshSuggestions().catch((error) => {
       console.error('[sync] Suggestions failed:', error.message);
     });
+  }
+
+  async seekBy(deltaMs) {
+    const state = this.currentState();
+    if (!state) {
+      throw new Error('Não há nada a tocar. Usa !play.');
+    }
+    return this.seekTo((state.progressMs || 0) + Number(deltaMs || 0));
+  }
+
+  async seekTo(progressMs) {
+    if (!this.current) {
+      throw new Error('Não há nada a tocar. Usa !play.');
+    }
+
+    const target = clampSeekMs(progressMs, this.current.durationMs);
+    const wasPaused = this.player.isPaused;
+    this.lastError = null;
+    this.startedAt = Date.now() - target;
+    this.pausedAt = wasPaused ? target : 0;
+    this.clearWatchdog();
+
+    await this.player.playTrack({
+      trackId: this.current.trackId,
+      searchQuery: this.current.searchQuery || `${this.current.artists} - ${this.current.title}`,
+      youtubeUrl: this.current.youtubeUrl || null,
+      progressMs: target,
+    });
+
+    if (wasPaused) {
+      this.player.pause();
+      this.pausedAt = target;
+    }
+
+    const remaining = Number(this.current.durationMs || 0) > 0
+      ? Math.max(0, this.current.durationMs - target)
+      : 0;
+    this.armWatchdog({ ...this.current, durationMs: remaining });
+    await this.refreshPanel();
+    return this.currentState();
   }
 
   async showClip(channel) {

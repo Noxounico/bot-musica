@@ -268,7 +268,7 @@ class VoiceMirrorPlayer {
       }
 
       try {
-        const stream = await this.streamWithYtdlp(url);
+        const stream = await this.streamWithYtdlp(url, seekSeconds);
         return { ...stream, youtubeUrl: url };
       } catch (error) {
         errors.push(`yt-dlp ${error.message}`);
@@ -276,7 +276,7 @@ class VoiceMirrorPlayer {
     }
 
     try {
-      const stream = await this.streamFromSoundCloud(searchQuery);
+      const stream = await this.streamFromSoundCloud(searchQuery, seekSeconds);
       return { ...stream, youtubeUrl: candidates[0] || null };
     } catch (error) {
       errors.push(`soundcloud ${error.message}`);
@@ -301,7 +301,7 @@ class VoiceMirrorPlayer {
     throw new Error(`Sem resultado no YouTube para "${query}"`);
   }
 
-  async streamWithYtdlp(url) {
+  async streamWithYtdlp(url, seekSeconds = 0) {
     let ytdl;
     try {
       ytdl = require('youtube-dl-exec');
@@ -316,6 +316,7 @@ class VoiceMirrorPlayer {
       noPlaylist: true,
       skipDownload: true,
       format: 'bestaudio/best',
+      ...(seekSeconds > 0 ? { downloadSections: `*${seekSeconds}-inf` } : {}),
     });
     const audioUrl = info.url || info.requested_formats?.find((item) => item.url)?.url;
     if (!audioUrl) {
@@ -330,7 +331,7 @@ class VoiceMirrorPlayer {
     return { stream: Readable.fromWeb(response.body), type: 'arbitrary' };
   }
 
-  async streamFromSoundCloud(query) {
+  async streamFromSoundCloud(query, seekSeconds = 0) {
     await ensureSoundCloud();
     const results = await play.search(query, { limit: 3, source: { soundcloud: 'tracks' } });
     for (const result of results) {
@@ -338,7 +339,7 @@ class VoiceMirrorPlayer {
         continue;
       }
       try {
-        return await play.stream(result.url);
+        return await play.stream(result.url, seekSeconds ? { seek: seekSeconds } : undefined);
       } catch (_) {
         // try the next SoundCloud match
       }
