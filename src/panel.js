@@ -43,6 +43,12 @@ function suggestionValue(track) {
   return String(track?.searchQuery || track?.title || '').slice(0, 100);
 }
 
+function idlePlayHint(canReadChat) {
+  return canReadChat
+    ? 'Clica **Tocar** ou escreve `!play mtg ficar legal`. Não precisas do Spotify aberto nem de Premium.'
+    : 'Clica **Tocar** ou menciona-me: `@NoxMusic play mtg ficar legal`. O Discord esconde `!play` neste servidor.';
+}
+
 function buildPanel({
   account,
   spotify,
@@ -53,6 +59,7 @@ function buildPanel({
   volume = 100,
   playlists = [],
   radio = true,
+  canReadChat = true,
 }) {
   const playing = Boolean(spotify?.isPlaying);
   const queueLength = queue.length;
@@ -72,7 +79,9 @@ function buildPanel({
     .setFooter({
       text: spotify
         ? 'A barra atualiza a cada segundo · menu para saltar'
-        : 'Clica Tocar ou escreve !play mtg ficar legal',
+        : (canReadChat
+          ? 'Clica Tocar ou escreve !play mtg ficar legal'
+          : 'Clica Tocar ou menciona o bot: @NoxMusic play mtg ficar legal'),
     });
 
   embed.setDescription(
@@ -88,7 +97,7 @@ function buildPanel({
           `• Pedido por **${controllerName}**`,
           channelName ? `• 🔊 ${channelName}` : null,
           `Fila: ${queueLength} · Volume: ${volume}% · Autoplay: ${radio ? 'on' : 'off'}`,
-          'Clica **Tocar** ou escreve `!play mtg ficar legal`. Não precisas do Spotify aberto nem de Premium.',
+          idlePlayHint(canReadChat),
         ].filter(Boolean).join('\n'),
     ].join('\n'),
   );
@@ -202,4 +211,5 @@ module.exports = {
   progressBar,
   volumeBar,
   suggestionValue,
+  idlePlayHint,
 };

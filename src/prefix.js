@@ -5,17 +5,29 @@ function hint(command) {
   return `${PREFIX}${command}`;
 }
 
+function normalizeChatContent(content) {
+  if (typeof content !== 'string') {
+    return '';
+  }
+
+  return content
+    .replace(/[\u200B-\u200D\uFEFF\u2060]/g, '')
+    .replace(/！/g, '!')
+    .replace(/^[\s\u00A0]+|[\s\u00A0]+$/g, '');
+}
+
 function parsePrefixCommand(content) {
   if (typeof content !== 'string') {
     return null;
   }
 
-  const prefix = PREFIXES.find((item) => content.startsWith(item));
+  const normalized = normalizeChatContent(content);
+  const prefix = PREFIXES.find((item) => normalized.startsWith(item));
   if (!prefix) {
     return null;
   }
 
-  const rest = content.slice(prefix.length).trim();
+  const rest = normalized.slice(prefix.length).trim();
   if (!rest) {
     return null;
   }
@@ -60,7 +72,7 @@ function parsePlaylistArgs(args) {
 }
 
 function parseChatCommand(content, { botId, commandNames = [] } = {}) {
-  const original = String(content || '').trim();
+  const original = normalizeChatContent(content);
   if (!original) {
     return null;
   }
@@ -96,6 +108,7 @@ module.exports = {
   PREFIX,
   PREFIXES,
   hint,
+  normalizeChatContent,
   parsePrefixCommand,
   parsePlaylistArgs,
   parseChatCommand,

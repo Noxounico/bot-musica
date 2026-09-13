@@ -1,6 +1,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePrefixCommand, parsePlaylistArgs, parseChatCommand, hint } = require('../src/prefix');
+const {
+  parsePrefixCommand,
+  parsePlaylistArgs,
+  parseChatCommand,
+  hint,
+  normalizeChatContent,
+} = require('../src/prefix');
 
 test('parsePrefixCommand reads name and remaining query', () => {
   assert.deepEqual(parsePrefixCommand('!play bohemian rhapsody'), {
@@ -44,4 +50,18 @@ test('parseChatCommand reads !play and mentions without a slash menu', () => {
     { name: 'play', args: 'mtg ficar legal' },
   );
   assert.equal(parseChatCommand('', { commandNames: names }), null);
+});
+
+test('normalizeChatContent strips zero-width marks and fullwidth bang', () => {
+  assert.equal(normalizeChatContent('\uFEFF!play mtg'), '!play mtg');
+  assert.equal(normalizeChatContent('！play mtg ficar legal'), '!play mtg ficar legal');
+  assert.equal(normalizeChatContent('!play\u200B mtg'), '!play mtg');
+});
+
+test('parseChatCommand reads !play after hidden characters', () => {
+  const names = ['play', 'add', 'entrar'];
+  assert.deepEqual(
+    parseChatCommand('\uFEFF！play mtg ficar legal', { commandNames: names }),
+    { name: 'play', args: 'mtg ficar legal' },
+  );
 });

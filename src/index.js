@@ -1,6 +1,7 @@
 const {
   Client,
   GatewayIntentBits,
+  Partials,
   ActivityType,
   ModalBuilder,
   TextInputBuilder,
@@ -22,6 +23,11 @@ const {
   isPlayCommand,
   playArgsFrom,
 } = require('./commands');
+const {
+  shouldHintUnreadableChat,
+  emptyChatHint,
+  pickVoiceMember,
+} = require('./chat');
 
 listenForPlatform();
 
@@ -63,7 +69,12 @@ function accountLine(status) {
     const label = status.spotify.isPlaying ? 'A tocar no Discord' : 'Em pausa';
     return `${label}: **${status.spotify.artists} — ${status.spotify.title}**`;
   }
-  return status.lastError || 'Usa `!play` ou `!add`. Não precisas do Spotify aberto nem de Premium.';
+  if (status.lastError) {
+    return status.lastError;
+  }
+  return mirror.canReadChat
+    ? 'Usa `!play` ou `!add`. Não precisas do Spotify aberto nem de Premium.'
+    : 'Clica **Tocar** ou menciona-me. O Discord esconde `!play` neste servidor.';
 }
 
 function memberAccount(member) {
@@ -242,10 +253,67 @@ async function runPlaylist({ sub, name, query, member, channel, guildId, reply }
   );
 }
 
+function findVoiceMember(userId) {
+  return pickVoiceMember(userId, [...client.guilds.cache.values()], config.discordGuildId);
+}
+
+async function maybeHintUnreadableChat(message) {
+  if (mirror.canReadChat) {
+    return;
+  }
+
+  const authorChannelId = message.member?.voice?.channelId || message.member?.voice?.channel?.id || null;
+  const shouldHint = shouldHintUnreadableChat({
+    content: message.content,
+    authorInVoice: Boolean(authorChannelId),
+    authorChannelId,
+    botChannelId: mirror.player.channelId || null,
+    inPanelChannel: Boolean(mirror.panelChannel && message.channelId === mirror.panelChannel.id),
+    lastHintAt: emptyChatHints.get(message.author.id) || 0,
+  });
+  if (!shouldHint) {
+    return;
+  }
+
+  emptyChatHints.set(message.author.id, Date.now());
+  await message.reply(emptyChatHint({ botId: message.client.user?.id })).catch(() => {});
+}
+
+async function handleDirectMessage(message) {
+  const parsed = parseChatCommand(message.content, {
+    botId: message.client.user?.id,
+    commandNames: COMMANDS,
+  });
+  if (!parsed || !COMMANDS.includes(parsed.name)) {
+    return;
+  }
+
+  const member = findVoiceMember(message.author.id);
+  if (!member) {
+    await message.reply(
+      'Entra num canal de voz no servidor e volta a escrever `!play` aqui. Sem Message Content o chat do servidor esconde o texto.',
+    ).catch(() => {});
+    return;
+  }
+
+  try {
+    await runCommand(parsed.name, {
+      member,
+      args: parsed.args,
+      channel: mirror.panelChannel || member.voice?.channel,
+      reply: async (payload) => message.reply(typeof payload === 'string' ? payload : payload),
+    });
+  } catch (error) {
+    console.error('[discord] DM command error:', error);
+    await message.reply(`Erro: ${error.message}`).catch(() => {});
+  }
+}
+
 const BASE_INTENTS = [
   GatewayIntentBits.Guilds,
   GatewayIntentBits.GuildVoiceStates,
   GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.DirectMessages,
 ];
 
 function createDiscordClient(withMessageContent) {
@@ -253,8 +321,13 @@ function createDiscordClient(withMessageContent) {
   if (withMessageContent) {
     intents.push(GatewayIntentBits.MessageContent);
   }
-  return new Client({ intents });
+  return new Client({
+    intents,
+    partials: [Partials.Channel, Partials.Message],
+  });
 }
+
+const emptyChatHints = new Map();
 
 let client = createDiscordClient(true);
 
@@ -272,6 +345,7 @@ mirror.onTrack = setListeningActivity;
 function bindDiscord(nextClient) {
   nextClient.once('ready', async () => {
     const messageContent = nextClient.options.intents.has(GatewayIntentBits.MessageContent);
+    mirror.canReadChat = messageContent;
     console.log(`[discord] Logged in as ${nextClient.user.tag}`);
     console.log(
       messageContent
@@ -300,7 +374,12 @@ function bindDiscord(nextClient) {
   });
 
   nextClient.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) {
+    if (message.author.bot) {
+      return;
+    }
+
+    if (!message.guild) {
+      await handleDirectMessage(message);
       return;
     }
 
@@ -308,21 +387,22 @@ function bindDiscord(nextClient) {
       botId: message.client.user?.id,
       commandNames: COMMANDS,
     });
-    if (!parsed || !COMMANDS.includes(parsed.name)) {
+    if (parsed && COMMANDS.includes(parsed.name)) {
+      try {
+        await runCommand(parsed.name, {
+          member: message.member,
+          args: parsed.args,
+          channel: message.channel,
+          reply: async (payload) => message.reply(typeof payload === 'string' ? payload : payload),
+        });
+      } catch (error) {
+        console.error('[discord] Command error:', error);
+        await message.reply(`Erro: ${error.message}`).catch(() => {});
+      }
       return;
     }
 
-    try {
-      await runCommand(parsed.name, {
-        member: message.member,
-        args: parsed.args,
-        channel: message.channel,
-        reply: async (payload) => message.reply(typeof payload === 'string' ? payload : payload),
-      });
-    } catch (error) {
-      console.error('[discord] Command error:', error);
-      await message.reply(`Erro: ${error.message}`).catch(() => {});
-    }
+    await maybeHintUnreadableChat(message);
   });
 
   nextClient.on('interactionCreate', async (interaction) => {
