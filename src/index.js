@@ -53,6 +53,8 @@ const PANEL_BUTTONS = new Set([
   'nox_save',
   'nox_shuffle',
   'nox_clip',
+  'nox_stop',
+  'nox_radio',
   ...Object.keys(SEEK_BUTTONS),
 ]);
 
@@ -340,6 +342,11 @@ function bindDiscord(nextClient) {
       return;
     }
 
+    if (interaction.isStringSelectMenu() && interaction.customId === 'nox_seek_jump') {
+      await handleSeekJump(interaction);
+      return;
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === 'nox_suggest') {
       await handleSuggestion(interaction);
       return;
@@ -421,6 +428,21 @@ async function handlePlayModal(interaction) {
   });
 }
 
+async function handleSeekJump(interaction) {
+  await interaction.deferUpdate();
+  mirror.setController(memberAccount(interaction.member));
+  const target = Number(interaction.values?.[0]);
+  if (!Number.isFinite(target)) {
+    return;
+  }
+  try {
+    await mirror.seekTo(target);
+  } catch (error) {
+    mirror.lastError = error.message;
+    await mirror.refreshPanel();
+  }
+}
+
 async function handleSuggestion(interaction) {
   await interaction.deferUpdate();
   const raw = interaction.values?.[0] || '';
@@ -472,6 +494,16 @@ async function handlePanelButton(interaction) {
 
     if (id === 'spotify_next') {
       await mirror.next();
+      return;
+    }
+
+    if (id === 'nox_stop') {
+      await mirror.stopPlayback();
+      return;
+    }
+
+    if (id === 'nox_radio') {
+      await mirror.toggleRadio();
       return;
     }
 

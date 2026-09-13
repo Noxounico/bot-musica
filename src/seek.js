@@ -34,4 +34,59 @@ function clampSeekMs(progressMs, durationMs) {
   return Math.max(0, target);
 }
 
-module.exports = { parseSeekInput, clampSeekMs };
+function clockFromMs(ms) {
+  const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = String(total % 60).padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function durationMsFrom(info) {
+  if (!info) {
+    return 0;
+  }
+  const raw = info.durationMs
+    || info.durationInSec
+    || info.duration
+    || info.video_details?.durationInSec
+    || info.video_details?.duration;
+  const value = Number(raw) || 0;
+  if (value <= 0) {
+    return 0;
+  }
+  return value > 10_000 ? value : value * 1000;
+}
+
+function seekJumpOptions(durationMs, progressMs = 0) {
+  const duration = Number(durationMs) || 0;
+  if (duration < 5000) {
+    return [];
+  }
+
+  const step = duration <= 180_000 ? 10_000 : (duration <= 480_000 ? 15_000 : 30_000);
+  const options = [];
+  const seen = new Set();
+
+  const push = (ms, description) => {
+    const clamped = clampSeekMs(ms, duration);
+    const value = String(clamped);
+    if (seen.has(value) || options.length >= 25) {
+      return;
+    }
+    seen.add(value);
+    options.push({
+      label: clockFromMs(clamped),
+      description,
+      value,
+    });
+  };
+
+  push(0, 'início');
+  for (let ms = step; ms < duration - 1000 && options.length < 24; ms += step) {
+    push(ms, ms <= progressMs ? 'já passou' : 'saltar para aqui');
+  }
+  push(duration - 1000, 'perto do fim');
+  return options;
+}
+
+module.exports = { parseSeekInput, clampSeekMs, durationMsFrom, seekJumpOptions, clockFromMs };

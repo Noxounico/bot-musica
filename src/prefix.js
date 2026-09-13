@@ -1,5 +1,5 @@
 const PREFIX = '!';
-const PREFIXES = ['!', '/'];
+const PREFIXES = ['!'];
 
 function hint(command) {
   return `${PREFIX}${command}`;

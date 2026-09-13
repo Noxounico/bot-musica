@@ -51,6 +51,7 @@ class FakePlayer {
     this.currentQuery = searchQuery;
     this.isPaused = false;
     this.lastProgressMs = progressMs;
+    this.lastDurationMs = this.lastDurationMs || 0;
     this.played.push(searchQuery);
   }
 
@@ -142,12 +143,11 @@ test('panel copy tells the user to !play without Premium or an open Spotify app'
   assert.match(description, /!play/);
   assert.doesNotMatch(description, /`\/play`/);
   assert.match(description, /não precisas do Spotify aberto nem de Premium/i);
-  assert.match(description, /70%/);
+  assert.match(description, /Volume: 70%/);
   assert.match(footer, /!play/);
-  assert.match(footer, /avatar de quem controla ao lado/);
   assert.deepEqual(
     payload.components[0].components.map((button) => button.data.custom_id),
-    ['spotify_prev', 'spotify_playpause', 'spotify_next', 'nox_voldown', 'nox_volup'],
+    ['spotify_playpause', 'spotify_next', 'nox_stop', 'nox_radio', 'nox_play'],
   );
 });
 
@@ -277,17 +277,57 @@ test('panel puts the controller avatar on the side', () => {
   });
 
   const embed = payload.embeds[0].data;
-  assert.equal(embed.thumbnail.url, 'https://cdn.discordapp.com/avatars/ghost.png');
-  assert.equal(embed.image.url, 'https://i.scdn.co/art.jpg');
-  assert.equal(embed.author.name, 'Controlo · Ghost');
-  assert.equal(embed.author.icon_url, undefined);
-  assert.match(embed.description, /Quem manda: \*\*Ghost\*\*/);
-  assert.match(embed.fields.find((field) => field.name.includes('Sugestões')).name, /tocam sozinhas/);
+  assert.equal(embed.thumbnail.url, 'https://i.scdn.co/art.jpg');
+  assert.equal(embed.image.url, 'attachment://slider.png');
+  assert.equal(embed.author.name, 'A tocar');
+  assert.equal(embed.title, 'MC Leozinho — TA PEDINDO TOMA');
+  assert.match(embed.description, /Pedido por \*\*Ghost\*\*/);
+  assert.match(embed.fields.find((field) => field.name === 'A seguir').name, /A seguir/);
   assert.deepEqual(
     payload.components[0].components.map((button) => button.data.custom_id),
-    ['nox_seek_back30', 'nox_seek_back15', 'nox_seek_fwd15', 'nox_seek_fwd30'],
+    ['spotify_playpause', 'spotify_next', 'nox_stop', 'nox_radio', 'nox_play'],
   );
-  assert.equal(payload.components[3].components[0].data.placeholder, 'Tocar uma sugestão agora');
+  assert.equal(payload.components[1].components[0].data.custom_id, 'nox_seek_jump');
+  assert.match(payload.components[1].components[0].data.placeholder, /Arrastar/);
+  assert.ok(payload.files[0]);
+});
+
+test('unknown duration shows --:-- instead of 0:00', () => {
+  const payload = buildPanel({
+    account: { displayName: 'Nox' },
+    spotify: {
+      title: 'MTG',
+      artists: 'YouTube',
+      isPlaying: true,
+      progressMs: 83000,
+      durationMs: 0,
+    },
+    lastError: null,
+    channelName: 'Geral',
+    queue: [],
+    volume: 40,
+  });
+  const description = payload.embeds[0].data.description;
+  assert.match(description, /1:23/);
+  assert.match(description, /--:--/);
+});
+
+test('applies stream duration and refreshes the panel on the ticker', async () => {
+  const { sync, player } = session();
+  const edits = [];
+  sync.attachPanel({
+    edit: async (payload) => {
+      edits.push(payload.content);
+      return payload;
+    },
+  });
+  player.lastDurationMs = 183000;
+  await sync.playQuery('tick track');
+  assert.equal(sync.current.durationMs, 183000);
+  const before = edits.length;
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.ok(edits.length > before);
+  sync.stopProgressTicker();
 });
 
 test('seekBy and seekTo move playback without changing the track', async () => {

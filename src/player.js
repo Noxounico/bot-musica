@@ -27,6 +27,7 @@ const {
 const { Readable } = require('stream');
 const play = require('play-dl');
 const { extractYouTubeId, normalizeYouTubeUrl } = require('./youtube');
+const { durationMsFrom } = require('./seek');
 
 let soundCloudReady = null;
 
@@ -56,6 +57,7 @@ class VoiceMirrorPlayer {
     this.ignoreIdle = false;
     this.onIdle = null;
     this.lastYouTubeUrl = null;
+    this.lastDurationMs = 0;
 
     this.player.on('error', (error) => {
       console.error('[player] Audio player error:', error.message);
@@ -215,6 +217,7 @@ class VoiceMirrorPlayer {
       const seekSeconds = Math.max(0, Math.floor(progressMs / 1000));
       const stream = await this.openAudioStream({ searchQuery, youtubeUrl, seekSeconds });
       this.lastYouTubeUrl = stream.youtubeUrl || normalizeYouTubeUrl(youtubeUrl || searchQuery);
+      this.lastDurationMs = stream.durationMs || this.lastDurationMs || 0;
 
       const resource = createAudioResource(stream.stream, {
         inputType: stream.type === 'opus' ? StreamType.Opus : StreamType.Arbitrary,
@@ -250,11 +253,13 @@ class VoiceMirrorPlayer {
       candidates.push(normalized);
     }
 
+    let searchedDuration = 0;
     try {
-      const searched = await this.searchYouTubeUrl(searchQuery);
-      if (searched && !candidates.includes(searched)) {
-        candidates.push(searched);
+      const searched = await this.searchYouTube(searchQuery);
+      if (searched?.url && !candidates.includes(searched.url)) {
+        candidates.push(searched.url);
       }
+      searchedDuration = searched?.durationMs || 0;
     } catch (error) {
       errors.push(error.message);
     }
@@ -262,14 +267,15 @@ class VoiceMirrorPlayer {
     for (const url of candidates) {
       try {
         const stream = await play.stream(url, { seek: seekSeconds });
-        return { ...stream, youtubeUrl: url };
+        const durationMs = searchedDuration || await this.durationFromYouTube(url);
+        return { ...stream, youtubeUrl: url, durationMs };
       } catch (error) {
         errors.push(`youtube ${error.message}`);
       }
 
       try {
         const stream = await this.streamWithYtdlp(url, seekSeconds);
-        return { ...stream, youtubeUrl: url };
+        return { ...stream, youtubeUrl: url, durationMs: stream.durationMs || searchedDuration };
       } catch (error) {
         errors.push(`yt-dlp ${error.message}`);
       }
@@ -288,17 +294,32 @@ class VoiceMirrorPlayer {
   }
 
   async searchYouTubeUrl(query) {
+    const found = await this.searchYouTube(query);
+    return found.url;
+  }
+
+  async searchYouTube(query) {
     if (extractYouTubeId(query)) {
-      return normalizeYouTubeUrl(query);
+      const url = normalizeYouTubeUrl(query);
+      return { url, durationMs: await this.durationFromYouTube(url) };
     }
 
     const results = await play.search(query, { limit: 3, source: { youtube: 'video' } });
     for (const result of results) {
       if (result.url) {
-        return result.url;
+        return { url: result.url, durationMs: durationMsFrom(result) };
       }
     }
     throw new Error(`Sem resultado no YouTube para "${query}"`);
+  }
+
+  async durationFromYouTube(url) {
+    try {
+      const info = await play.video_basic_info(url);
+      return durationMsFrom(info);
+    } catch (_) {
+      return 0;
+    }
   }
 
   async streamWithYtdlp(url, seekSeconds = 0) {
@@ -328,7 +349,11 @@ class VoiceMirrorPlayer {
       throw new Error(`áudio HTTP ${response.status}`);
     }
 
-    return { stream: Readable.fromWeb(response.body), type: 'arbitrary' };
+    return {
+      stream: Readable.fromWeb(response.body),
+      type: 'arbitrary',
+      durationMs: durationMsFrom(info),
+    };
   }
 
   async streamFromSoundCloud(query, seekSeconds = 0) {
@@ -339,7 +364,8 @@ class VoiceMirrorPlayer {
         continue;
       }
       try {
-        return await play.stream(result.url, seekSeconds ? { seek: seekSeconds } : undefined);
+        const stream = await play.stream(result.url, seekSeconds ? { seek: seekSeconds } : undefined);
+        return { ...stream, durationMs: durationMsFrom(result) };
       } catch (_) {
         // try the next SoundCloud match
       }
