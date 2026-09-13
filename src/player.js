@@ -62,6 +62,10 @@ class VoiceMirrorPlayer {
       this.loading = false;
     });
 
+    this.player.on(AudioPlayerStatus.Playing, () => {
+      this.ignoreIdle = false;
+    });
+
     this.player.on(AudioPlayerStatus.Idle, () => {
       this.loading = false;
       if (this.ignoreIdle) {

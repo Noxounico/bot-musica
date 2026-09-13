@@ -9,6 +9,7 @@ const { parsePrefixCommand } = require('./prefix');
 const { SpotifyMirrorSync } = require('./sync');
 const playlists = require('./playlists');
 const { deleteStaleBotMessages } = require('./cleanup');
+const { controllerFromMember } = require('./account');
 const {
   COMMAND_NAMES,
   registerSlashCommands,
@@ -51,10 +52,7 @@ function accountLine(status) {
 }
 
 function memberAccount(member) {
-  return {
-    displayName: member?.displayName || member?.user?.username,
-    imageUrl: member?.displayAvatarURL?.() || null,
-  };
+  return controllerFromMember(member);
 }
 
 async function ensureJoined(member) {
@@ -62,8 +60,11 @@ async function ensureJoined(member) {
   if (!voiceChannel) {
     throw new Error('Entra num canal de voz primeiro, depois usa `/play` ou `/entrar`.');
   }
+  const account = memberAccount(member);
   if (!mirror.player.isConnected() || mirror.player.channelId !== voiceChannel.id) {
-    await mirror.join(voiceChannel);
+    await mirror.join(voiceChannel, account);
+  } else {
+    mirror.setController(account);
   }
   return voiceChannel;
 }
@@ -112,7 +113,7 @@ async function runCommand(command, { member, reply, args, channel }) {
 
     await ensureJoined(member);
     mirror.panelChannel = channel || member?.voice?.channel;
-    const replace = command !== 'add';
+    const replace = command !== 'add' && !mirror.current;
     const result = await mirror.playQuery(query, memberAccount(member), { replace });
     await ensurePanel(mirror.panelChannel);
     const content = result.queued
@@ -179,6 +180,7 @@ async function handlePlaylist(interaction) {
     await ensureJoined(interaction.member);
     mirror.guildId = guildId;
     mirror.panelChannel = interaction.channel;
+    mirror.setController(memberAccount(interaction.member));
     const playlist = await mirror.playPlaylist(name);
     await ensurePanel(interaction.channel);
     await interaction.editReply(`A tocar a playlist **${playlist.name}** (${playlist.tracks.length} faixas).`);
@@ -323,7 +325,7 @@ async function handleSuggestion(interaction) {
     return;
   }
   try {
-    await mirror.playQuery(query, memberAccount(interaction.member));
+    await mirror.playQuery(query, memberAccount(interaction.member), { replace: true });
     await mirror.refreshPanel();
   } catch (error) {
     mirror.lastError = error.message;
@@ -338,6 +340,7 @@ async function handlePanelButton(interaction) {
   }
 
   await interaction.deferUpdate();
+  mirror.setController(memberAccount(interaction.member));
 
   try {
     if (id === 'spotify_leave') {
@@ -402,8 +405,10 @@ async function handlePanelButton(interaction) {
 
     if (mirror.getStatus().spotify?.isPlaying) {
       await mirror.pause();
-    } else {
+    } else if (mirror.current) {
       await mirror.resume();
+    } else {
+      await mirror.startRadio(memberAccount(interaction.member));
     }
   } catch (error) {
     mirror.lastError = error.message;

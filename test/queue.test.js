@@ -141,7 +141,8 @@ test('panel copy tells the user to /play without Premium or an open Spotify app'
   assert.match(description, /\/play/);
   assert.match(description, /não precisas do Spotify aberto nem de Premium/i);
   assert.match(description, /70%/);
-  assert.match(footer, /À espera de \/play/);
+  assert.match(footer, /\/play/);
+  assert.match(footer, /avatar de quem controla ao lado/);
   assert.deepEqual(
     payload.components[0].components.map((button) => button.data.custom_id),
     ['spotify_prev', 'spotify_playpause', 'spotify_next', 'nox_voldown', 'nox_volup'],
@@ -165,4 +166,120 @@ test('changing track edits the same panel message immediately', async () => {
   assert.ok(edits.some((line) => /one/.test(line)));
   assert.ok(edits.some((line) => /two/.test(line)));
   assert.match(edits.at(-1), /two/);
+});
+
+test('idle next plays a suggestion when the queue is empty', async () => {
+  const { sync, player } = session();
+  await sync.playQuery('only track');
+  sync.suggestions = [{
+    trackId: 'radio-1',
+    title: 'Sugestão',
+    artists: 'Rádio',
+    searchQuery: 'radio hit',
+  }];
+
+  const result = await sync.next({ fromIdle: true });
+  assert.equal(result.searchQuery, 'radio hit');
+  assert.equal(player.currentQuery, 'radio hit');
+  assert.equal(sync.current.title, 'Sugestão');
+});
+
+test('idle next seeds Spotify suggestions when both queue and list are empty', async () => {
+  const player = new FakePlayer();
+  const sync = new SpotifyMirrorSync(
+    { spotifyClientId: 'id', spotifyClientSecret: 'secret' },
+    {
+      player,
+      spotify: {
+        enabled: () => true,
+        resolve: async () => null,
+        suggestionsFor: async (track) => {
+          const label = track.searchQuery || track.title;
+          if (/segue sozinha/.test(label)) {
+            return [];
+          }
+          assert.match(label, /only track/);
+          return [{
+            trackId: 'seed-1',
+            title: 'Segue sozinha',
+            artists: 'Rádio',
+            searchQuery: 'segue sozinha',
+          }];
+        },
+        searchTracks: async () => [],
+      },
+    },
+  );
+
+  sync.current = {
+    trackId: 'only',
+    title: 'only track',
+    searchQuery: 'only track',
+    artists: 'YouTube',
+  };
+  player.currentTrackId = 'only';
+  const result = await sync.next({ fromIdle: true });
+  assert.equal(result.title, 'Segue sozinha');
+  assert.equal(player.currentQuery, 'segue sozinha');
+});
+
+test('startRadio plays the first suggestion and stores the controller', async () => {
+  const { sync, player } = session();
+  sync.suggestions = [{
+    trackId: 'radio-2',
+    title: 'Auto',
+    artists: 'Rádio',
+    searchQuery: 'auto play',
+  }];
+
+  const started = await sync.startRadio({
+    id: 'user-1',
+    displayName: 'Ghost',
+    imageUrl: 'https://cdn.discordapp.com/avatars/ghost.png',
+  });
+
+  assert.equal(started.searchQuery, 'auto play');
+  assert.equal(player.currentQuery, 'auto play');
+  assert.equal(sync.account.displayName, 'Ghost');
+  assert.equal(sync.account.imageUrl, 'https://cdn.discordapp.com/avatars/ghost.png');
+});
+
+test('startRadio resumes a paused track instead of skipping', async () => {
+  const { sync, player } = session();
+  await sync.playQuery('paused song');
+  await sync.pause();
+  await sync.startRadio({ displayName: 'Nox' });
+  assert.equal(player.isPaused, false);
+  assert.equal(player.currentQuery, 'paused song');
+});
+
+test('panel puts the controller avatar on the side', () => {
+  const payload = buildPanel({
+    account: {
+      displayName: 'Ghost',
+      imageUrl: 'https://cdn.discordapp.com/avatars/ghost.png',
+    },
+    spotify: {
+      title: 'TA PEDINDO TOMA',
+      artists: 'MC Leozinho',
+      isPlaying: true,
+      progressMs: 1000,
+      durationMs: 180000,
+      albumArt: 'https://i.scdn.co/art.jpg',
+    },
+    lastError: null,
+    channelName: 'Geral',
+    queue: [],
+    suggestions: [{ title: 'Próxima', artists: 'Rádio' }],
+    volume: 10,
+  });
+
+  const embed = payload.embeds[0].data;
+  assert.equal(embed.thumbnail.url, 'https://cdn.discordapp.com/avatars/ghost.png');
+  assert.equal(embed.image.url, 'https://i.scdn.co/art.jpg');
+  assert.equal(embed.author.name, 'Controlo · Ghost');
+  assert.equal(embed.author.icon_url, undefined);
+  assert.match(embed.description, /Quem manda: \*\*Ghost\*\*/);
+  assert.match(embed.fields.find((field) => field.name.includes('Sugestões')).name, /tocam sozinhas/);
+  assert.equal(payload.components[2].components[0].data.placeholder, 'Tocar uma sugestão agora');
 });

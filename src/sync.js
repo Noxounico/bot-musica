@@ -4,6 +4,7 @@ const { buildPanel } = require('./panel');
 const { extractYouTubeId, fetchOEmbed, watchUrl } = require('./youtube');
 const playlists = require('./playlists');
 const { resolveClipUrl, publishClip } = require('./clip');
+const { mergeController } = require('./account');
 
 class SpotifyMirrorSync {
   constructor(config, deps = {}) {
@@ -18,7 +19,7 @@ class SpotifyMirrorSync {
     this.startedAt = 0;
     this.pausedAt = 0;
     this.lastError = null;
-    this.account = { displayName: 'NoxMusic', imageUrl: null };
+    this.account = { id: null, displayName: 'NoxMusic', imageUrl: null };
     this.channelName = null;
     this.panelMessage = null;
     this.panelChannel = null;
@@ -26,6 +27,8 @@ class SpotifyMirrorSync {
     this.onTrack = null;
     this.guildId = null;
     this.suggestions = [];
+    this.advancing = false;
+    this.watchdog = null;
 
     this.player.onIdle = () => {
       this.next({ fromIdle: true }).catch((error) => {
@@ -36,17 +39,25 @@ class SpotifyMirrorSync {
     };
   }
 
+  setController(account) {
+    this.account = mergeController(this.account, account);
+    return this.account;
+  }
+
   async join(channel, account) {
     this.channelName = await this.player.join(channel);
     this.guildId = channel.guild?.id || this.guildId;
-    if (account?.displayName) {
-      this.account = account;
-    }
+    this.setController(account);
     this.lastError = null;
+    this.seedIdleSuggestions().then(() => this.refreshPanel()).catch((error) => {
+      console.error('[sync] Idle suggestions failed:', error.message);
+    });
     return this.channelName;
   }
 
   leave() {
+    this.clearWatchdog();
+    this.advancing = false;
     this.queue = [];
     this.history = [];
     this.current = null;
@@ -181,9 +192,7 @@ class SpotifyMirrorSync {
   }
 
   async playQuery(query, account, { replace = false } = {}) {
-    if (account?.displayName) {
-      this.account = account;
-    }
+    this.setController(account);
 
     const track = await this.resolveTrack(query);
 
@@ -207,7 +216,7 @@ class SpotifyMirrorSync {
     this.startedAt = Date.now();
     this.pausedAt = 0;
     this.lastError = null;
-    this.suggestions = [];
+    this.clearWatchdog();
     await this.refreshPanel();
     try {
       await this.player.playTrack({
@@ -228,6 +237,7 @@ class SpotifyMirrorSync {
     if (this.onTrack) {
       this.onTrack(this.currentState());
     }
+    this.armWatchdog(this.current);
     await this.refreshPanel();
     this.refreshSuggestions().catch((error) => {
       console.error('[sync] Suggestions failed:', error.message);
@@ -247,13 +257,97 @@ class SpotifyMirrorSync {
     return url;
   }
 
-  async refreshSuggestions() {
-    if (!this.current || !this.spotify.enabled()) {
-      this.suggestions = [];
+  async refreshSuggestions(seed = null) {
+    const from = seed || this.current;
+    if (!from || !this.spotify.enabled()) {
       return;
     }
-    this.suggestions = await this.spotify.suggestionsFor(this.current);
-    await this.refreshPanel();
+    const next = await this.spotify.suggestionsFor(from);
+    if (next.length) {
+      this.suggestions = next;
+      await this.refreshPanel();
+    }
+  }
+
+  async seedIdleSuggestions(seed = null) {
+    if (!this.spotify.enabled()) {
+      return this.suggestions;
+    }
+
+    const from = seed || this.current || this.history[this.history.length - 1] || null;
+    if (from && typeof this.spotify.suggestionsFor === 'function') {
+      const related = await this.spotify.suggestionsFor(from);
+      if (related.length) {
+        this.suggestions = related;
+        return this.suggestions;
+      }
+    }
+
+    if (typeof this.spotify.searchTracks === 'function') {
+      const query = from?.searchQuery || from?.title || 'top portugal';
+      this.suggestions = await this.spotify.searchTracks(query, 5);
+    }
+    return this.suggestions;
+  }
+
+  clearWatchdog() {
+    if (this.watchdog) {
+      clearTimeout(this.watchdog);
+      this.watchdog = null;
+    }
+  }
+
+  armWatchdog(track) {
+    this.clearWatchdog();
+    const duration = Number(track?.durationMs || 0);
+    if (!duration || duration < 5000) {
+      return;
+    }
+    const token = track.trackId;
+    this.watchdog = setTimeout(() => {
+      if (this.current?.trackId !== token || this.player.isPaused) {
+        return;
+      }
+      this.next({ fromIdle: true }).catch((error) => {
+        this.lastError = error.message;
+        console.error('[sync] Watchdog next failed:', error.message);
+        this.refreshPanel();
+      });
+    }, duration + 2000);
+  }
+
+  async startRadio(account) {
+    this.setController(account);
+
+    if (this.current && this.player.currentTrackId) {
+      if (this.player.isPaused) {
+        return this.resume();
+      }
+      return this.current;
+    }
+
+    if (this.queue.length) {
+      return this.next();
+    }
+
+    if (this.guildId) {
+      const sessao = playlists.get(this.guildId, 'sessao');
+      if (sessao?.tracks?.length) {
+        return this.playPlaylist('sessao');
+      }
+    }
+
+    if (!this.suggestions.length) {
+      await this.seedIdleSuggestions();
+    }
+
+    const first = this.suggestions.shift();
+    if (!first) {
+      throw new Error('Sem sugestões ainda. Usa `/play` com o nome da música.');
+    }
+
+    await this.startTrack(first);
+    return first;
   }
 
   adjustVolume(delta) {
@@ -319,26 +413,51 @@ class SpotifyMirrorSync {
   }
 
   async next({ fromIdle = false } = {}) {
-    if (this.current) {
-      this.history.push(this.current);
+    if (this.advancing) {
+      return null;
     }
 
-    const upcoming = this.queue.shift();
-    if (!upcoming) {
+    this.advancing = true;
+    this.clearWatchdog();
+    try {
+      if (this.current) {
+        this.history.push(this.current);
+      }
+
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        let upcoming = this.queue.shift();
+        if (!upcoming) {
+          upcoming = this.suggestions.shift();
+        }
+        if (!upcoming) {
+          await this.seedIdleSuggestions(this.history[this.history.length - 1]);
+          upcoming = this.suggestions.shift();
+        }
+        if (!upcoming) {
+          this.current = null;
+          this.player.quietStop();
+          await this.refreshPanel();
+          return null;
+        }
+
+        try {
+          await this.startTrack(upcoming);
+          return upcoming;
+        } catch (error) {
+          this.lastError = error.message;
+          console.error('[sync] Next track failed:', error.message);
+          if (!fromIdle && attempt === 5) {
+            throw error;
+          }
+        }
+      }
+
       this.current = null;
       this.player.quietStop();
       await this.refreshPanel();
       return null;
-    }
-
-    try {
-      await this.startTrack(upcoming);
-      return upcoming;
-    } catch (error) {
-      if (fromIdle) {
-        throw error;
-      }
-      return this.next({ fromIdle });
+    } finally {
+      this.advancing = false;
     }
   }
 
