@@ -2,10 +2,16 @@ const {
   Client,
   GatewayIntentBits,
   ActivityType,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
 } = require('discord.js');
 const { listenForPlatform } = require('./health');
 const config = require('./config');
-const { parsePrefixCommand, parsePlaylistArgs } = require('./prefix');
+const { parseChatCommand, parsePlaylistArgs } = require('./prefix');
+const { parseSeekInput } = require('./seek');
+const { formatClock } = require('./panel');
 const { SpotifyMirrorSync } = require('./sync');
 const playlists = require('./playlists');
 const { deleteStaleBotMessages } = require('./cleanup');
@@ -30,7 +36,13 @@ console.log('[boot] env present', {
 
 const mirror = new SpotifyMirrorSync(config);
 
-const COMMANDS = COMMAND_NAMES;
+const COMMANDS = [...COMMAND_NAMES, 'atras', 'avancar'];
+const SEEK_BUTTONS = {
+  nox_seek_back30: -30_000,
+  nox_seek_back15: -15_000,
+  nox_seek_fwd15: 15_000,
+  nox_seek_fwd30: 30_000,
+};
 const PANEL_BUTTONS = new Set([
   'spotify_prev',
   'spotify_playpause',
@@ -41,6 +53,7 @@ const PANEL_BUTTONS = new Set([
   'nox_save',
   'nox_shuffle',
   'nox_clip',
+  ...Object.keys(SEEK_BUTTONS),
 ]);
 
 function accountLine(status) {
@@ -120,6 +133,29 @@ async function runCommand(command, { member, reply, args, channel }) {
       ? `**${result.track.title}** ficou na fila (posição ${result.position}).`
       : `A tocar **${result.track.title}**.`;
     await reply(content);
+    return;
+  }
+
+  if (command === 'atras' || command === 'avancar' || command === 'seek') {
+    let input = String(args || '').trim();
+    if (command === 'atras') {
+      const seconds = Number.parseInt(input, 10);
+      input = Number.isFinite(seconds) && seconds > 0 ? `-${seconds}` : '-15';
+    } else if (command === 'avancar') {
+      const seconds = Number.parseInt(input, 10);
+      input = Number.isFinite(seconds) && seconds > 0 ? `+${seconds}` : '+15';
+    }
+
+    const parsed = parseSeekInput(input);
+    if (!parsed) {
+      await reply('Usa `!atras`, `!avancar`, `!seek +15` ou `!seek 1:30`.');
+      return;
+    }
+
+    const state = parsed.type === 'relative'
+      ? await mirror.seekBy(parsed.ms)
+      : await mirror.seekTo(parsed.ms);
+    await reply(`Fui para \`${formatClock(state?.progressMs)}\`.`);
     return;
   }
 
@@ -233,7 +269,13 @@ mirror.onTrack = setListeningActivity;
 
 function bindDiscord(nextClient) {
   nextClient.once('ready', async () => {
+    const messageContent = nextClient.options.intents.has(GatewayIntentBits.MessageContent);
     console.log(`[discord] Logged in as ${nextClient.user.tag}`);
+    console.log(
+      messageContent
+        ? '[discord] Message Content ligado. !play no chat funciona.'
+        : '[discord] Message Content desligado. !play no chat fica vazio — usa o botão Tocar ou menciona o bot.',
+    );
     if (config.spotifyClientId && config.spotifyClientSecret) {
       console.log('[spotify] Search API ready (client_credentials). Sem Premium, sem app aberta.');
     } else {
@@ -260,7 +302,10 @@ function bindDiscord(nextClient) {
       return;
     }
 
-    const parsed = parsePrefixCommand(message.content);
+    const parsed = parseChatCommand(message.content, {
+      botId: message.client.user?.id,
+      commandNames: COMMANDS,
+    });
     if (!parsed || !COMMANDS.includes(parsed.name)) {
       return;
     }
@@ -270,11 +315,7 @@ function bindDiscord(nextClient) {
         member: message.member,
         args: parsed.args,
         channel: message.channel,
-        reply: async (payload) => {
-          const sent = await message.reply(typeof payload === 'string' ? payload : payload);
-          sent.delete().catch(() => {});
-          return sent;
-        },
+        reply: async (payload) => message.reply(typeof payload === 'string' ? payload : payload),
       });
     } catch (error) {
       console.error('[discord] Command error:', error);
@@ -284,6 +325,16 @@ function bindDiscord(nextClient) {
 
   nextClient.on('interactionCreate', async (interaction) => {
   try {
+    if (interaction.isButton() && interaction.customId === 'nox_play') {
+      await showPlayModal(interaction);
+      return;
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'nox_play_modal') {
+      await handlePlayModal(interaction);
+      return;
+    }
+
     if (interaction.isButton()) {
       await handlePanelButton(interaction);
       return;
@@ -320,7 +371,9 @@ function bindDiscord(nextClient) {
 
     const args = isPlayCommand(command)
       ? playArgsFrom(interaction)
-      : (command === 'volume' ? String(interaction.options.getInteger('nivel') ?? '') : '');
+      : (command === 'volume'
+        ? String(interaction.options.getInteger('nivel') ?? '')
+        : (command === 'seek' ? String(interaction.options.getString('tempo') ?? '') : ''));
 
     await runCommand(command, {
       member: interaction.member,
@@ -341,6 +394,32 @@ function bindDiscord(nextClient) {
 }
 
 bindDiscord(client);
+
+async function showPlayModal(interaction) {
+  const modal = new ModalBuilder()
+    .setCustomId('nox_play_modal')
+    .setTitle('Tocar no NoxMusic');
+  const input = new TextInputBuilder()
+    .setCustomId('query')
+    .setLabel('Nome da música ou link')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setPlaceholder('mtg ficar legal')
+    .setMaxLength(200);
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+  await interaction.showModal(modal);
+}
+
+async function handlePlayModal(interaction) {
+  const query = interaction.fields.getTextInputValue('query');
+  await interaction.deferReply({ ephemeral: true });
+  await runCommand('play', {
+    member: interaction.member,
+    args: query,
+    channel: interaction.channel,
+    reply: async (payload) => interaction.editReply(typeof payload === 'string' ? payload : payload),
+  });
+}
 
 async function handleSuggestion(interaction) {
   await interaction.deferUpdate();
@@ -393,6 +472,11 @@ async function handlePanelButton(interaction) {
 
     if (id === 'spotify_next') {
       await mirror.next();
+      return;
+    }
+
+    if (Object.hasOwn(SEEK_BUTTONS, id)) {
+      await mirror.seekBy(SEEK_BUTTONS[id]);
       return;
     }
 

@@ -46,10 +46,11 @@ class FakePlayer {
     this.isPaused = false;
   }
 
-  async playTrack({ trackId, searchQuery }) {
+  async playTrack({ trackId, searchQuery, progressMs = 0 }) {
     this.currentTrackId = trackId;
     this.currentQuery = searchQuery;
     this.isPaused = false;
+    this.lastProgressMs = progressMs;
     this.played.push(searchQuery);
   }
 
@@ -282,5 +283,31 @@ test('panel puts the controller avatar on the side', () => {
   assert.equal(embed.author.icon_url, undefined);
   assert.match(embed.description, /Quem manda: \*\*Ghost\*\*/);
   assert.match(embed.fields.find((field) => field.name.includes('Sugestões')).name, /tocam sozinhas/);
-  assert.equal(payload.components[2].components[0].data.placeholder, 'Tocar uma sugestão agora');
+  assert.deepEqual(
+    payload.components[0].components.map((button) => button.data.custom_id),
+    ['nox_seek_back30', 'nox_seek_back15', 'nox_seek_fwd15', 'nox_seek_fwd30'],
+  );
+  assert.equal(payload.components[3].components[0].data.placeholder, 'Tocar uma sugestão agora');
+});
+
+test('seekBy and seekTo move playback without changing the track', async () => {
+  const { sync, player } = session();
+  await sync.playQuery('only track');
+  sync.current.durationMs = 180000;
+  sync.startedAt = Date.now() - 43000;
+
+  const before = sync.currentState().progressMs;
+  const forward = await sync.seekBy(15000);
+  assert.equal(player.currentQuery, 'only track');
+  assert.equal(player.lastProgressMs, before + 15000);
+  assert.ok(Math.abs(forward.progressMs - (before + 15000)) < 50);
+
+  const mid = sync.currentState().progressMs;
+  const back = await sync.seekBy(-30000);
+  assert.equal(player.lastProgressMs, mid - 30000);
+  assert.ok(Math.abs(back.progressMs - (mid - 30000)) < 50);
+
+  const jump = await sync.seekTo(90000);
+  assert.equal(player.lastProgressMs, 90000);
+  assert.ok(Math.abs(jump.progressMs - 90000) < 50);
 });

@@ -8,7 +8,12 @@ const PANEL_CUSTOM_IDS = new Set([
   'nox_save',
   'nox_shuffle',
   'nox_clip',
+  'nox_play',
   'nox_suggest',
+  'nox_seek_back30',
+  'nox_seek_back15',
+  'nox_seek_fwd15',
+  'nox_seek_fwd30',
 ]);
 
 function messageCustomIds(message) {

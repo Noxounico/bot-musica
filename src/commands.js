@@ -52,6 +52,15 @@ const slashCommands = [
     .setName('clipe')
     .setDescription('Mostra a foto/capa e o clipe YouTube da música atual'),
   new SlashCommandBuilder()
+    .setName('seek')
+    .setDescription('Avança ou recua na música. Ex: !seek +15, !seek -30, !seek 1:30')
+    .addStringOption((option) =>
+      option
+        .setName('tempo')
+        .setDescription('+15, -30 ou 1:30')
+        .setRequired(true),
+    ),
+  new SlashCommandBuilder()
     .setName('playlist')
     .setDescription('Cria e toca playlists no Discord')
     .addSubcommand((sub) =>
