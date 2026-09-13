@@ -4,7 +4,10 @@ const {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
+  AttachmentBuilder,
 } = require('discord.js');
+const { seekJumpOptions } = require('./seek');
+const { sliderPng } = require('./slider');
 
 function formatClock(ms) {
   const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
@@ -14,13 +17,13 @@ function formatClock(ms) {
 }
 
 function progressBar(progressMs, durationMs) {
-  const width = 14;
+  const width = 18;
   if (!durationMs) {
-    return '●' + '▬'.repeat(width - 1);
+    return '●' + '─'.repeat(width - 1);
   }
   const ratio = Math.min(1, Math.max(0, progressMs / durationMs));
   const index = Math.round(ratio * (width - 1));
-  return `${'▬'.repeat(index)}●${'▬'.repeat(width - 1 - index)}`;
+  return `${'─'.repeat(index)}●${'─'.repeat(width - 1 - index)}`;
 }
 
 function volumeBar(percent) {
@@ -49,43 +52,45 @@ function buildPanel({
   suggestions = [],
   volume = 100,
   playlists = [],
+  radio = true,
 }) {
   const playing = Boolean(spotify?.isPlaying);
   const queueLength = queue.length;
   const controllerName = account?.displayName || 'NoxMusic';
+  const durationLabel = spotify?.durationMs ? formatClock(spotify.durationMs) : '--:--';
   const embed = new EmbedBuilder()
-    .setColor(0x1db954)
+    .setColor(0x9b87f5)
     .setAuthor({
-      name: `Controlo · ${controllerName}`,
+      name: playing ? 'A tocar' : (spotify ? 'Em pausa' : 'NoxMusic'),
+      iconURL: account?.imageUrl || undefined,
     })
-    .setTitle(spotify?.title ? `🎵  ${spotify.title}` : 'NoxMusic')
+    .setTitle(
+      spotify
+        ? `${spotify.artists ? `${spotify.artists} — ` : ''}${spotify.title}`
+        : 'NoxMusic',
+    )
     .setFooter({
-      text: playing
-        ? 'A tocar no Discord · sugestões seguem sozinhas · sem Premium'
-        : (spotify ? 'Em pausa' : '▶ toca sugestões · !play para escolher · avatar de quem controla ao lado'),
+      text: spotify
+        ? 'A barra atualiza a cada segundo · menu para saltar'
+        : 'Clica Tocar ou escreve !play mtg ficar legal',
     });
-
-  const links = [];
-  if (spotify?.externalUrl) {
-    links.push(`[Spotify](${spotify.externalUrl})`);
-  }
-  if (spotify?.youtubeUrl) {
-    links.push(`[Clipe YouTube](${spotify.youtubeUrl})`);
-  }
 
   embed.setDescription(
     [
-      `👤 Quem manda: **${controllerName}**`,
       spotify
-        ? `**${spotify.artists}**`
-        : 'Clica **Tocar** ou escreve `!play mtg ficar legal`. Também podes mencionar o bot. Não precisas do Spotify aberto nem de Premium.',
-      links.length ? links.join('  ·  ') : null,
-      spotify
-        ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\`\n◀ −15s / +15s ▶  ·  \`!atras\` \`!avancar\` \`!seek 1:30\``
-        : null,
-      `🔊 ${volumeBar(volume)}`,
-      channelName ? `🎧 Canal **${channelName}** · fones cortados` : null,
-    ].filter(Boolean).join('\n'),
+        ? [
+          `• Pedido por **${controllerName}**`,
+          channelName ? `• 🔊 ${channelName}` : null,
+          `Fila: ${queueLength} · Volume: ${volume}% · Autoplay: ${radio ? 'on' : 'off'}`,
+          `\`${formatClock(spotify.progressMs)}\`  \`${durationLabel}\``,
+        ].filter(Boolean).join('\n')
+        : [
+          `• Pedido por **${controllerName}**`,
+          channelName ? `• 🔊 ${channelName}` : null,
+          `Fila: ${queueLength} · Volume: ${volume}% · Autoplay: ${radio ? 'on' : 'off'}`,
+          'Clica **Tocar** ou escreve `!play mtg ficar legal`. Não precisas do Spotify aberto nem de Premium.',
+        ].filter(Boolean).join('\n'),
+    ].join('\n'),
   );
 
   if (spotify?.youtubeUrl) {
@@ -94,36 +99,35 @@ function buildPanel({
     embed.setURL(spotify.externalUrl);
   }
 
-  if (account?.imageUrl) {
+  if (spotify?.albumArt) {
+    embed.setThumbnail(spotify.albumArt);
+  } else if (account?.imageUrl) {
     embed.setThumbnail(account.imageUrl);
   }
 
-  if (spotify?.albumArt) {
-    embed.setImage(spotify.albumArt);
+  if (queueLength) {
+    embed.addFields({
+      name: `Fila · ${queueLength}`,
+      value: queue.slice(0, 5).map((track, index) => (
+        `**${index + 1}.** ${track.title}${track.artists ? ` — ${track.artists}` : ''}`
+      )).join('\n').slice(0, 1024),
+      inline: false,
+    });
   }
-
-  const queueLines = queue.slice(0, 5).map((track, index) => (
-    `**${index + 1}.** ${track.title}${track.artists ? ` — ${track.artists}` : ''}`
-  ));
-  embed.addFields({
-    name: queueLength ? `📋 Fila · ${queueLength}` : '📋 Fila',
-    value: queueLines.join('\n').slice(0, 1024) || 'Vazia. `!add música` ou escolhe uma sugestão.',
-    inline: false,
-  });
 
   if (playlists.length) {
     embed.addFields({
-      name: '💿 Playlists',
+      name: 'Playlists',
       value: playlists.map((item) => `**${item.name}** · ${item.tracks.length} faixas`).join('\n').slice(0, 1024),
-      inline: false,
+      inline: true,
     });
   }
 
   if (suggestions.length) {
     embed.addFields({
-      name: '✨ Sugestões · tocam sozinhas',
-      value: suggestions.slice(0, 5).map((track) => `• ${track.title} — ${track.artists}`).join('\n').slice(0, 1024),
-      inline: false,
+      name: 'A seguir',
+      value: suggestions.slice(0, 3).map((track) => `• ${track.title} — ${track.artists}`).join('\n').slice(0, 1024),
+      inline: true,
     });
   }
 
@@ -131,49 +135,65 @@ function buildPanel({
     embed.addFields({ name: 'Aviso', value: lastError.slice(0, 1024) });
   }
 
-  const seek = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('nox_seek_back30').setLabel('−30s').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_seek_back15').setLabel('−15s').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_seek_fwd15').setLabel('+15s').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_seek_fwd30').setLabel('+30s').setStyle(ButtonStyle.Secondary),
-  );
+  const files = [];
+  if (spotify) {
+    files.push(new AttachmentBuilder(
+      sliderPng(spotify.progressMs, spotify.durationMs),
+      { name: 'slider.png' },
+    ));
+    embed.setImage('attachment://slider.png');
+  }
 
   const transport = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('spotify_prev').setLabel('⏮').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('spotify_playpause')
-      .setLabel(playing ? '⏸' : '▶')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('spotify_next').setLabel('⏭').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_voldown').setLabel('🔉').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_volup').setLabel('🔊').setStyle(ButtonStyle.Secondary),
+      .setLabel(playing ? 'Pausar' : 'Play')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('spotify_next').setLabel('Skip').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_stop').setLabel('Parar').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('nox_radio')
+      .setLabel(radio ? 'Autoplay on' : 'Autoplay off')
+      .setStyle(radio ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_play').setLabel('Tocar').setStyle(ButtonStyle.Primary),
   );
 
   const extra = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('nox_play').setLabel('Tocar').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('nox_save').setLabel('Playlist').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_shuffle').setLabel('Shuffle').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('nox_clip').setLabel('Clipe').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_back15').setLabel('−15s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_fwd15').setLabel('+15s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_back30').setLabel('−30s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('nox_seek_fwd30').setLabel('+30s').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('spotify_leave').setLabel('Sair').setStyle(ButtonStyle.Danger),
   );
 
-  const components = spotify ? [seek, transport, extra] : [transport, extra];
+  const components = [transport, extra];
 
-  if (suggestions.length) {
-    const menu = new StringSelectMenuBuilder()
-      .setCustomId('nox_suggest')
-      .setPlaceholder('Tocar uma sugestão agora')
-      .addOptions(
-        suggestions.slice(0, 5).map((track, index) => ({
-          label: String(track.title || 'Música').slice(0, 100),
-          description: String(track.artists || 'Spotify').slice(0, 100),
-          value: `${index}:${suggestionValue(track)}`.slice(0, 100),
-        })),
-      );
-    components.push(new ActionRowBuilder().addComponents(menu));
+  const jumps = seekJumpOptions(spotify?.durationMs, spotify?.progressMs);
+  if (jumps.length && components.length < 5) {
+    components.splice(1, 0, new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('nox_seek_jump')
+        .setPlaceholder('Arrastar — escolhe o tempo na música')
+        .addOptions(jumps),
+    ));
   }
 
-  return { embeds: [embed], components };
+  if (suggestions.length && components.length < 5) {
+    components.push(new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('nox_suggest')
+        .setPlaceholder('Tocar uma sugestão agora')
+        .addOptions(
+          suggestions.slice(0, 5).map((track, index) => ({
+            label: String(track.title || 'Música').slice(0, 100),
+            description: String(track.artists || 'Spotify').slice(0, 100),
+            value: `${index}:${suggestionValue(track)}`.slice(0, 100),
+          })),
+        ),
+    ));
+  }
+
+  return { embeds: [embed], components, files };
 }
 
 module.exports = {

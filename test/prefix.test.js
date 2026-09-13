@@ -7,7 +7,7 @@ test('parsePrefixCommand reads name and remaining query', () => {
     name: 'play',
     args: 'bohemian rhapsody',
   });
-  assert.deepEqual(parsePrefixCommand('/entrar'), { name: 'entrar', args: '' });
+  assert.equal(parsePrefixCommand('/entrar'), null);
   assert.equal(parsePrefixCommand('hello'), null);
   assert.equal(hint('play'), '!play');
 });

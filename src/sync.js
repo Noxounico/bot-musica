@@ -30,6 +30,8 @@ class SpotifyMirrorSync {
     this.suggestions = [];
     this.advancing = false;
     this.watchdog = null;
+    this.progressTimer = null;
+    this.radio = true;
 
     this.player.onIdle = () => {
       this.next({ fromIdle: true }).catch((error) => {
@@ -57,6 +59,7 @@ class SpotifyMirrorSync {
   }
 
   leave() {
+    this.stopProgressTicker();
     this.clearWatchdog();
     this.advancing = false;
     this.queue = [];
@@ -113,6 +116,7 @@ class SpotifyMirrorSync {
       suggestions: this.suggestions,
       volume: this.player.getVolumePercent ? this.player.getVolumePercent() : 100,
       playlists: this.guildId ? playlists.list(this.guildId) : [],
+      radio: this.radio,
     };
   }
 
@@ -213,6 +217,7 @@ class SpotifyMirrorSync {
   }
 
   async startTrack(track) {
+    this.stopProgressTicker();
     this.current = track;
     this.startedAt = Date.now();
     this.pausedAt = 0;
@@ -229,9 +234,11 @@ class SpotifyMirrorSync {
       if (this.player.lastYouTubeUrl) {
         this.current.youtubeUrl = this.player.lastYouTubeUrl;
       }
+      this.applyDuration(this.player.lastDurationMs);
     } catch (error) {
       this.lastError = error.message;
       this.current = null;
+      this.stopProgressTicker();
       await this.refreshPanel();
       throw error;
     }
@@ -239,6 +246,7 @@ class SpotifyMirrorSync {
       this.onTrack(this.currentState());
     }
     this.armWatchdog(this.current);
+    this.startProgressTicker();
     await this.refreshPanel();
     this.refreshSuggestions().catch((error) => {
       console.error('[sync] Suggestions failed:', error.message);
@@ -271,10 +279,14 @@ class SpotifyMirrorSync {
       youtubeUrl: this.current.youtubeUrl || null,
       progressMs: target,
     });
+    this.applyDuration(this.player.lastDurationMs);
 
     if (wasPaused) {
       this.player.pause();
       this.pausedAt = target;
+      this.stopProgressTicker();
+    } else {
+      this.startProgressTicker();
     }
 
     const remaining = Number(this.current.durationMs || 0) > 0
@@ -283,6 +295,39 @@ class SpotifyMirrorSync {
     this.armWatchdog({ ...this.current, durationMs: remaining });
     await this.refreshPanel();
     return this.currentState();
+  }
+
+  applyDuration(ms) {
+    const duration = Number(ms) || 0;
+    if (!this.current || duration < 1000) {
+      return;
+    }
+    if (!this.current.durationMs || this.current.durationMs < 1000) {
+      this.current.durationMs = duration;
+    }
+  }
+
+  startProgressTicker() {
+    this.stopProgressTicker();
+    if (!this.current || this.player.isPaused) {
+      return;
+    }
+    this.progressTimer = setInterval(() => {
+      if (!this.current || this.player.isPaused || this.player.loading) {
+        return;
+      }
+      this.refreshPanel().catch(() => {});
+    }, 1000);
+    if (typeof this.progressTimer.unref === 'function') {
+      this.progressTimer.unref();
+    }
+  }
+
+  stopProgressTicker() {
+    if (this.progressTimer) {
+      clearInterval(this.progressTimer);
+      this.progressTimer = null;
+    }
   }
 
   async showClip(channel) {
@@ -435,12 +480,27 @@ class SpotifyMirrorSync {
     return playlist;
   }
 
+  stopPlayback() {
+    this.stopProgressTicker();
+    this.clearWatchdog();
+    this.queue = [];
+    this.current = null;
+    this.player.quietStop();
+    return this.refreshPanel();
+  }
+
+  toggleRadio() {
+    this.radio = !this.radio;
+    return this.refreshPanel();
+  }
+
   pause() {
     if (!this.current) {
       throw new Error('Não há nada a tocar. Usa !play.');
     }
     this.pausedAt = Date.now() - this.startedAt;
     this.player.pause();
+    this.stopProgressTicker();
     return this.refreshPanel();
   }
 
@@ -450,6 +510,7 @@ class SpotifyMirrorSync {
     }
     this.startedAt = Date.now() - this.pausedAt;
     this.player.resume();
+    this.startProgressTicker();
     return this.refreshPanel();
   }
 
@@ -467,15 +528,16 @@ class SpotifyMirrorSync {
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
         let upcoming = this.queue.shift();
-        if (!upcoming) {
+        if (!upcoming && this.radio) {
           upcoming = this.suggestions.shift();
         }
-        if (!upcoming) {
+        if (!upcoming && this.radio) {
           await this.seedIdleSuggestions(this.history[this.history.length - 1]);
           upcoming = this.suggestions.shift();
         }
         if (!upcoming) {
           this.current = null;
+          this.stopProgressTicker();
           this.player.quietStop();
           await this.refreshPanel();
           return null;
@@ -494,6 +556,7 @@ class SpotifyMirrorSync {
       }
 
       this.current = null;
+      this.stopProgressTicker();
       this.player.quietStop();
       await this.refreshPanel();
       return null;
