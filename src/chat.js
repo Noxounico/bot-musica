@@ -17,21 +17,15 @@ function shouldHintUnreadableChat({
   if (!chatLooksEmpty(content)) {
     return false;
   }
-  if (!authorInVoice || !authorChannelId) {
-    return false;
-  }
-
-  const sameVoice = Boolean(botChannelId && botChannelId === authorChannelId);
-  const botIdle = !botChannelId;
-  if (!sameVoice && !botIdle && !inPanelChannel) {
-    return false;
-  }
-
   if (lastHintAt && now - lastHintAt < cooldownMs) {
     return false;
   }
 
-  return true;
+  if (inPanelChannel) {
+    return true;
+  }
+
+  return Boolean(authorInVoice && authorChannelId);
 }
 
 function emptyChatHint({ botId, queryExample = 'mtg ficar legal' } = {}) {

@@ -8,7 +8,7 @@ const {
 } = require('../src/chat');
 const { idlePlayHint } = require('../src/panel');
 
-test('shouldHintUnreadableChat only fires for empty chat in the same voice or panel', () => {
+test('shouldHintUnreadableChat only fires for empty chat in voice or the panel', () => {
   assert.equal(shouldHintUnreadableChat({
     content: '!play mtg',
     authorInVoice: true,
@@ -28,13 +28,12 @@ test('shouldHintUnreadableChat only fires for empty chat in the same voice or pa
     authorInVoice: true,
     authorChannelId: 'vc-1',
     botChannelId: 'vc-2',
-  }), false);
+  }), true);
 
   assert.equal(shouldHintUnreadableChat({
     content: '',
-    authorInVoice: true,
-    authorChannelId: 'vc-1',
-    botChannelId: 'vc-2',
+    authorInVoice: false,
+    authorChannelId: null,
     inPanelChannel: true,
   }), true);
 
@@ -83,15 +82,16 @@ test('emptyChatHint tells the user to click Tocar or mention the bot', () => {
 test('pickVoiceMember prefers the configured guild when the user is in voice', () => {
   const memberA = { id: 'user-1', voice: { channel: { id: 'vc-a' } } };
   const memberB = { id: 'user-1', voice: { channel: { id: 'vc-b' } } };
+  const voiceState = (member) => ({
+    cache: {
+      get: (userId) => (userId === member.id
+        ? { member, channel: member.voice.channel }
+        : null),
+    },
+  });
   const guilds = [
-    {
-      id: 'guild-a',
-      voiceStates: { cache: { get: () => ({ member: memberA, channel: memberA.voice.channel }) } },
-    },
-    {
-      id: 'guild-b',
-      voiceStates: { cache: { get: () => ({ member: memberB, channel: memberB.voice.channel }) } },
-    },
+    { id: 'guild-a', voiceStates: voiceState(memberA) },
+    { id: 'guild-b', voiceStates: voiceState(memberB) },
   ];
 
   assert.equal(pickVoiceMember('user-1', guilds, 'guild-b'), memberB);
