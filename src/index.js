@@ -5,10 +5,11 @@ const {
 } = require('discord.js');
 const { listenForPlatform } = require('./health');
 const config = require('./config');
-const { parsePrefixCommand } = require('./prefix');
+const { parsePrefixCommand, parsePlaylistArgs } = require('./prefix');
 const { SpotifyMirrorSync } = require('./sync');
 const playlists = require('./playlists');
 const { deleteStaleBotMessages } = require('./cleanup');
+const { controllerFromMember } = require('./account');
 const {
   COMMAND_NAMES,
   registerSlashCommands,
@@ -47,23 +48,23 @@ function accountLine(status) {
     const label = status.spotify.isPlaying ? 'A tocar no Discord' : 'Em pausa';
     return `${label}: **${status.spotify.artists} — ${status.spotify.title}**`;
   }
-  return status.lastError || 'Usa `/play` ou `/add`. Não precisas do Spotify aberto nem de Premium.';
+  return status.lastError || 'Usa `!play` ou `!add`. Não precisas do Spotify aberto nem de Premium.';
 }
 
 function memberAccount(member) {
-  return {
-    displayName: member?.displayName || member?.user?.username,
-    imageUrl: member?.displayAvatarURL?.() || null,
-  };
+  return controllerFromMember(member);
 }
 
 async function ensureJoined(member) {
   const voiceChannel = member?.voice?.channel;
   if (!voiceChannel) {
-    throw new Error('Entra num canal de voz primeiro, depois usa `/play` ou `/entrar`.');
+    throw new Error('Entra num canal de voz primeiro, depois usa `!play` ou `!entrar`.');
   }
+  const account = memberAccount(member);
   if (!mirror.player.isConnected() || mirror.player.channelId !== voiceChannel.id) {
-    await mirror.join(voiceChannel);
+    await mirror.join(voiceChannel, account);
+  } else {
+    mirror.setController(account);
   }
   return voiceChannel;
 }
@@ -106,13 +107,13 @@ async function runCommand(command, { member, reply, args, channel }) {
   if (isPlayCommand(command)) {
     const query = String(args || '').trim();
     if (!query) {
-      await reply('Diz o nome da música. Exemplo: `/play bohemian rhapsody` ou `/add uma sugestão`');
+      await reply('Diz o nome da música. Exemplo: `!play bohemian rhapsody` ou `!add uma sugestão`');
       return;
     }
 
     await ensureJoined(member);
     mirror.panelChannel = channel || member?.voice?.channel;
-    const replace = command !== 'add';
+    const replace = command !== 'add' && !mirror.current;
     const result = await mirror.playQuery(query, memberAccount(member), { replace });
     await ensurePanel(mirror.panelChannel);
     const content = result.queued
@@ -125,7 +126,7 @@ async function runCommand(command, { member, reply, args, channel }) {
   if (command === 'volume') {
     const level = Number(args);
     if (!Number.isFinite(level)) {
-      await reply('Usa `/volume 40` — um número de 0 a 100.');
+      await reply('Usa `!volume 40` — um número de 0 a 100.');
       return;
     }
     await mirror.setVolume(level);
@@ -149,59 +150,75 @@ async function runCommand(command, { member, reply, args, channel }) {
     mirror.panelChannel = channel || mirror.panelChannel;
     await ensurePanel(mirror.panelChannel);
     await reply(accountLine(mirror.getStatus()));
+    return;
+  }
+
+  if (command === 'playlist') {
+    const parsed = parsePlaylistArgs(args);
+    await runPlaylist({
+      ...parsed,
+      member,
+      channel,
+      guildId: member?.guild?.id,
+      reply,
+    });
   }
 }
 
-async function handlePlaylist(interaction) {
-  const sub = interaction.options.getSubcommand();
-  const guildId = interaction.guildId;
-  const name = interaction.options.getString('nome');
-
+async function runPlaylist({ sub, name, query, member, channel, guildId, reply }) {
   if (sub === 'criar') {
     const playlist = playlists.create(guildId, name);
-    await interaction.editReply(`Playlist **${playlist.name}** pronta. Usa \`/playlist add ${playlist.name}\` ou o botão Playlist.`);
+    await reply(`Playlist **${playlist.name}** pronta. Usa \`!playlist add ${playlist.name}\` ou o botão Playlist.`);
     await mirror.refreshPanel();
     return;
   }
 
   if (sub === 'add') {
-    const query = interaction.options.getString('musica');
     const track = query
       ? await mirror.resolveTrack(query)
       : mirror.current;
     const playlist = playlists.add(guildId, name, track);
-    await interaction.editReply(`**${track.title}** entrou em **${playlist.name}** (${playlist.tracks.length} faixas).`);
+    await reply(`**${track.title}** entrou em **${playlist.name}** (${playlist.tracks.length} faixas).`);
     await mirror.refreshPanel();
     return;
   }
 
   if (sub === 'tocar') {
-    await ensureJoined(interaction.member);
+    await ensureJoined(member);
     mirror.guildId = guildId;
-    mirror.panelChannel = interaction.channel;
+    mirror.panelChannel = channel;
+    mirror.setController(memberAccount(member));
     const playlist = await mirror.playPlaylist(name);
-    await ensurePanel(interaction.channel);
-    await interaction.editReply(`A tocar a playlist **${playlist.name}** (${playlist.tracks.length} faixas).`);
+    await ensurePanel(channel);
+    await reply(`A tocar a playlist **${playlist.name}** (${playlist.tracks.length} faixas).`);
     return;
   }
 
   const items = playlists.list(guildId);
   if (!items.length) {
-    await interaction.editReply('Ainda não há playlists. `/playlist criar festa`');
+    await reply('Ainda não há playlists. `!playlist criar festa`');
     return;
   }
-  await interaction.editReply(
+  await reply(
     items.map((item) => `• **${item.name}** — ${item.tracks.length} faixas`).join('\n'),
   );
 }
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessages,
-  ],
-});
+const BASE_INTENTS = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildVoiceStates,
+  GatewayIntentBits.GuildMessages,
+];
+
+function createDiscordClient(withMessageContent) {
+  const intents = [...BASE_INTENTS];
+  if (withMessageContent) {
+    intents.push(GatewayIntentBits.MessageContent);
+  }
+  return new Client({ intents });
+}
+
+let client = createDiscordClient(true);
 
 function setListeningActivity(spotify) {
   if (!client.user || !spotify) {
@@ -214,57 +231,58 @@ function setListeningActivity(spotify) {
 
 mirror.onTrack = setListeningActivity;
 
-client.once('ready', async () => {
-  console.log(`[discord] Logged in as ${client.user.tag}`);
-  if (config.spotifyClientId && config.spotifyClientSecret) {
-    console.log('[spotify] Search API ready (client_credentials). Sem Premium, sem app aberta.');
-  } else {
-    console.log('[spotify] Search opcional. Sem Client ID o bot toca na mesma via YouTube.');
-  }
-  try {
-    await registerSlashCommands(client);
-  } catch (error) {
-    console.error('[discord] Failed to register slash commands:', error.message);
-  }
-});
+function bindDiscord(nextClient) {
+  nextClient.once('ready', async () => {
+    console.log(`[discord] Logged in as ${nextClient.user.tag}`);
+    if (config.spotifyClientId && config.spotifyClientSecret) {
+      console.log('[spotify] Search API ready (client_credentials). Sem Premium, sem app aberta.');
+    } else {
+      console.log('[spotify] Search opcional. Sem Client ID o bot toca na mesma via YouTube.');
+    }
+    try {
+      await registerSlashCommands(nextClient);
+    } catch (error) {
+      console.error('[discord] Failed to register slash commands:', error.message);
+    }
+  });
 
-client.on('guildCreate', async (guild) => {
-  try {
-    await registerSlashCommands(client);
-    console.log(`[discord] Registered commands for new guild ${guild.name}`);
-  } catch (error) {
-    console.error('[discord] Failed to register slash commands:', error.message);
-  }
-});
+  nextClient.on('guildCreate', async (guild) => {
+    try {
+      await registerSlashCommands(nextClient);
+      console.log(`[discord] Registered commands for new guild ${guild.name}`);
+    } catch (error) {
+      console.error('[discord] Failed to register slash commands:', error.message);
+    }
+  });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.guild) {
-    return;
-  }
+  nextClient.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.guild) {
+      return;
+    }
 
-  const parsed = parsePrefixCommand(message.content);
-  if (!parsed || !COMMANDS.includes(parsed.name)) {
-    return;
-  }
+    const parsed = parsePrefixCommand(message.content);
+    if (!parsed || !COMMANDS.includes(parsed.name)) {
+      return;
+    }
 
-  try {
-    await runCommand(parsed.name, {
-      member: message.member,
-      args: parsed.args,
-      channel: message.channel,
-      reply: async (payload) => {
-        const sent = await message.reply(typeof payload === 'string' ? payload : payload);
-        sent.delete().catch(() => {});
-        return sent;
-      },
-    });
-  } catch (error) {
-    console.error('[discord] Command error:', error);
-    await message.reply(`Erro: ${error.message}`).catch(() => {});
-  }
-});
+    try {
+      await runCommand(parsed.name, {
+        member: message.member,
+        args: parsed.args,
+        channel: message.channel,
+        reply: async (payload) => {
+          const sent = await message.reply(typeof payload === 'string' ? payload : payload);
+          sent.delete().catch(() => {});
+          return sent;
+        },
+      });
+    } catch (error) {
+      console.error('[discord] Command error:', error);
+      await message.reply(`Erro: ${error.message}`).catch(() => {});
+    }
+  });
 
-client.on('interactionCreate', async (interaction) => {
+  nextClient.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isButton()) {
       await handlePanelButton(interaction);
@@ -288,7 +306,15 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
 
     if (command === 'playlist') {
-      await handlePlaylist(interaction);
+      await runPlaylist({
+        sub: interaction.options.getSubcommand(),
+        name: interaction.options.getString('nome'),
+        query: interaction.options.getString('musica'),
+        member: interaction.member,
+        channel: interaction.channel,
+        guildId: interaction.guildId,
+        reply: async (payload) => interaction.editReply(typeof payload === 'string' ? payload : payload),
+      });
       return;
     }
 
@@ -311,7 +337,10 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.reply({ content: payload.content, ephemeral: true }).catch(() => {});
     }
   }
-});
+  });
+}
+
+bindDiscord(client);
 
 async function handleSuggestion(interaction) {
   await interaction.deferUpdate();
@@ -323,7 +352,7 @@ async function handleSuggestion(interaction) {
     return;
   }
   try {
-    await mirror.playQuery(query, memberAccount(interaction.member));
+    await mirror.playQuery(query, memberAccount(interaction.member), { replace: true });
     await mirror.refreshPanel();
   } catch (error) {
     mirror.lastError = error.message;
@@ -338,6 +367,7 @@ async function handlePanelButton(interaction) {
   }
 
   await interaction.deferUpdate();
+  mirror.setController(memberAccount(interaction.member));
 
   try {
     if (id === 'spotify_leave') {
@@ -351,7 +381,7 @@ async function handlePanelButton(interaction) {
     }
 
     if (!mirror.player.isConnected() && id !== 'nox_clip') {
-      mirror.lastError = 'Não estou no canal. Usa /entrar e depois /play.';
+      mirror.lastError = 'Não estou no canal. Usa !entrar e depois !play.';
       await mirror.refreshPanel();
       return;
     }
@@ -384,7 +414,7 @@ async function handlePanelButton(interaction) {
     if (id === 'nox_save') {
       const playlist = mirror.saveSessionPlaylist();
       await interaction.followUp({
-        content: `Playlist **${playlist.name}** guardada com ${playlist.tracks.length} faixas. \`/playlist tocar ${playlist.name}\``,
+        content: `Playlist **${playlist.name}** guardada com ${playlist.tracks.length} faixas. \`!playlist tocar ${playlist.name}\``,
         ephemeral: true,
       });
       await mirror.refreshPanel();
@@ -402,8 +432,10 @@ async function handlePanelButton(interaction) {
 
     if (mirror.getStatus().spotify?.isPlaying) {
       await mirror.pause();
-    } else {
+    } else if (mirror.current) {
       await mirror.resume();
+    } else {
+      await mirror.startRadio(memberAccount(interaction.member));
     }
   } catch (error) {
     mirror.lastError = error.message;
@@ -412,19 +444,42 @@ async function handlePanelButton(interaction) {
   }
 }
 
-if (!config.discordToken) {
-  console.error('[discord] Missing DISCORD_TOKEN (or TOKEN). Set it in Railway Variables.');
-  if (!config.onRailway) {
-    process.exit(1);
-  }
-} else {
-  client.login(config.discordToken).catch((error) => {
-    console.error('[discord] Login failed:', error.message);
+async function loginDiscord() {
+  if (!config.discordToken) {
+    console.error('[discord] Missing DISCORD_TOKEN (or TOKEN). Set it in Railway Variables.');
     if (!config.onRailway) {
       process.exit(1);
     }
-  });
+    return;
+  }
+
+  try {
+    await client.login(config.discordToken);
+  } catch (error) {
+    if (!/disallowed intents/i.test(error.message)) {
+      console.error('[discord] Login failed:', error.message);
+      if (!config.onRailway) {
+        process.exit(1);
+      }
+      return;
+    }
+
+    console.error('[discord] Message Content bloqueado. Liga o intent no portal para !play no chat. A entrar sem ele.');
+    client.destroy();
+    client = createDiscordClient(false);
+    bindDiscord(client);
+    try {
+      await client.login(config.discordToken);
+    } catch (retryError) {
+      console.error('[discord] Login failed:', retryError.message);
+      if (!config.onRailway) {
+        process.exit(1);
+      }
+    }
+  }
 }
+
+loginDiscord();
 
 process.on('SIGINT', () => {
   mirror.leave();

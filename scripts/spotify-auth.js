@@ -8,6 +8,6 @@ Não precisas de:
 - ter o Spotify aberto
 - SPOTIFY_REFRESH_TOKEN
 
-No Discord: /entrar e /play nome da música.
+No Discord: !entrar e !play nome da música.
 Opcional: SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET só para arte e título (client_credentials).
 `);

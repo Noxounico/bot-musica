@@ -31,7 +31,7 @@ Não uses `SPOTIFY_REFRESH_TOKEN`. Esse fluxo pedia Premium e a app aberta.
 
 1. Cria uma aplicação em https://discord.com/developers/applications
 2. Em **Bot**, gera um token → `DISCORD_TOKEN`
-3. Intents: **Guilds** e **Guild Voice States**. Não ligues Message Content.
+3. Intents: **Guilds**, **Guild Voice States** e **Message Content** (para `!play` no chat).
 4. Em **OAuth2 → URL Generator**, scopes: `bot`, `applications.commands`
 5. Permissões: `Connect`, `Speak`, `Use Voice Activity`
 6. Convida o bot para o teu servidor
@@ -50,18 +50,17 @@ npm start
 No Discord:
 
 1. Entra num canal de voz
-2. `/entrar` (menu `/`, não escrevas o texto à mão)
-3. `/play` ou `/tocar` com o nome da música — ou um link do YouTube / Spotify
-   Se o Discord mostrar o `/play` de outro bot, escolhe o **NoxMusic** ou usa `/tocar`.
-4. O painel **é a mesma mensagem**: quando mudas de faixa (⏭, `/play`, playlist) o título, a capa e o texto atualizam ali.
-5. `/add` mete na fila sem trocar a atual. `/volume 40` ou 🔉/🔊. `/playlist criar festa`.
+2. Escreve `!entrar` no chat
+3. `!play` ou `!tocar` com o nome da música — ou um link do YouTube / Spotify
+4. O painel **é a mesma mensagem**: quando mudas de faixa (⏭, `!play`, playlist) o título, a capa e o texto atualizam ali.
+5. `!add` mete na fila sem trocar a atual. `!volume 40` ou 🔉/🔊. `!playlist criar festa`.
 6. No painel: ⏮ ▶/⏸ ⏭ 🔉 🔊 · Playlist · Shuffle · Clipe · Sair
 
-`/sair` sai do voice. `/painel` volta a publicar o painel.
+`!sair` sai do voice. `!painel` volta a publicar o painel.
 
 ## Como funciona
 
-1. `/play` aceita nome, link YouTube (`youtu.be` / `watch`) ou link Spotify.
+1. `!play` aceita nome, link YouTube (`youtu.be` / `watch`) ou link Spotify.
 2. Links `youtu.be?si=` são limpos para `youtube.com/watch?v=...`.
 3. Se o YouTube recusar o stream (bot check), o bot tenta SoundCloud com o mesmo título.
 4. Os botões avançam, recuam, pausam e retomam **a fila do Discord**.
@@ -69,7 +68,7 @@ No Discord:
 ## Limitações
 
 - O áudio vem do YouTube (ou SoundCloud se o YouTube bloquear o servidor).
-- Comandos escritos como texto (`/entrar` no chat) não funcionam: o bot não pede Message Content. Usa o menu `/`.
+- Os comandos no chat usam `!` (`!play`, `!add`, `!volume 40`). Liga **Message Content** no Discord Developer Portal.
 
 ## Estrutura
 

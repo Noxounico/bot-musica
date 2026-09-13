@@ -43,7 +43,7 @@ function isStaleBotMessage(message, { keepId, keepIds, botId } = {}) {
     .filter(Boolean)
     .join(' ');
   const text = `${message.content || ''} ${embedText}`;
-  return /está pensando|a tocar|em pausa|ficou na fila|noxmusic|usa `?\/play/i.test(text);
+  return /está pensando|a tocar|em pausa|ficou na fila|noxmusic|usa `?[\/!]play/i.test(text);
 }
 
 async function deleteStaleBotMessages(channel, { keepId, keepIds, botId, limit = 30 } = {}) {

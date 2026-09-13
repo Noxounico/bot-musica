@@ -52,17 +52,17 @@ function buildPanel({
 }) {
   const playing = Boolean(spotify?.isPlaying);
   const queueLength = queue.length;
+  const controllerName = account?.displayName || 'NoxMusic';
   const embed = new EmbedBuilder()
     .setColor(0x1db954)
     .setAuthor({
-      name: account?.displayName ? `NoxMusic · ${account.displayName}` : 'NoxMusic',
-      iconURL: account?.imageUrl || undefined,
+      name: `Controlo · ${controllerName}`,
     })
     .setTitle(spotify?.title ? `🎵  ${spotify.title}` : 'NoxMusic')
     .setFooter({
       text: playing
-        ? 'A tocar no Discord · sem Premium · sem app aberta'
-        : (spotify ? 'Em pausa' : 'À espera de /play · capa Spotify · clipe YouTube'),
+        ? 'A tocar no Discord · sugestões seguem sozinhas · sem Premium'
+        : (spotify ? 'Em pausa' : '▶ toca sugestões · !play para escolher · avatar de quem controla ao lado'),
     });
 
   const links = [];
@@ -75,9 +75,10 @@ function buildPanel({
 
   embed.setDescription(
     [
+      `👤 Quem manda: **${controllerName}**`,
       spotify
         ? `**${spotify.artists}**`
-        : 'Usa `/play` ou `/add` — nome, link Spotify ou YouTube. Não precisas do Spotify aberto nem de Premium.',
+        : 'Usa `!play` ou `!add` — nome, link Spotify ou YouTube. Não precisas do Spotify aberto nem de Premium. ▶ no painel toca as sugestões sozinhas.',
       links.length ? links.join('  ·  ') : null,
       spotify
         ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
@@ -93,6 +94,10 @@ function buildPanel({
     embed.setURL(spotify.externalUrl);
   }
 
+  if (account?.imageUrl) {
+    embed.setThumbnail(account.imageUrl);
+  }
+
   if (spotify?.albumArt) {
     embed.setImage(spotify.albumArt);
   }
@@ -102,7 +107,7 @@ function buildPanel({
   ));
   embed.addFields({
     name: queueLength ? `📋 Fila · ${queueLength}` : '📋 Fila',
-    value: queueLines.join('\n').slice(0, 1024) || 'Vazia. `/add música` ou escolhe uma sugestão.',
+    value: queueLines.join('\n').slice(0, 1024) || 'Vazia. `!add música` ou escolhe uma sugestão.',
     inline: false,
   });
 
@@ -116,7 +121,7 @@ function buildPanel({
 
   if (suggestions.length) {
     embed.addFields({
-      name: '✨ Sugestões',
+      name: '✨ Sugestões · tocam sozinhas',
       value: suggestions.slice(0, 5).map((track) => `• ${track.title} — ${track.artists}`).join('\n').slice(0, 1024),
       inline: false,
     });
@@ -149,7 +154,7 @@ function buildPanel({
   if (suggestions.length) {
     const menu = new StringSelectMenuBuilder()
       .setCustomId('nox_suggest')
-      .setPlaceholder('Adicionar uma sugestão à fila')
+      .setPlaceholder('Tocar uma sugestão agora')
       .addOptions(
         suggestions.slice(0, 5).map((track, index) => ({
           label: String(track.title || 'Música').slice(0, 100),

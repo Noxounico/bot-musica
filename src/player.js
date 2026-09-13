@@ -62,6 +62,10 @@ class VoiceMirrorPlayer {
       this.loading = false;
     });
 
+    this.player.on(AudioPlayerStatus.Playing, () => {
+      this.ignoreIdle = false;
+    });
+
     this.player.on(AudioPlayerStatus.Idle, () => {
       this.loading = false;
       if (this.ignoreIdle) {
@@ -200,7 +204,7 @@ class VoiceMirrorPlayer {
 
   async playTrack({ trackId, searchQuery, youtubeUrl = null, progressMs = 0 }) {
     if (!this.isConnected()) {
-      throw new Error('O bot não está num canal de voz. Usa /entrar primeiro.');
+      throw new Error('O bot não está num canal de voz. Usa !entrar primeiro.');
     }
 
     this.loading = true;
@@ -279,7 +283,7 @@ class VoiceMirrorPlayer {
     }
 
     throw new Error(
-      'O YouTube recusou o link (share `youtu.be` / bloqueio de bot). Tenta `/play` com o nome da música.',
+      'O YouTube recusou o link (share `youtu.be` / bloqueio de bot). Tenta `!play` com o nome da música.',
     );
   }
 

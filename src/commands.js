@@ -26,7 +26,7 @@ const slashCommands = [
     ),
   new SlashCommandBuilder()
     .setName('tocar')
-    .setDescription('Igual ao /play — toca uma música no Discord')
+    .setDescription('Igual ao !play — toca uma música no Discord')
     .addStringOption((option) =>
       option
         .setName('musica')
@@ -115,7 +115,7 @@ async function registerSlashCommands(client) {
       error: 'missing-application-id',
       at: new Date().toISOString(),
     };
-    throw new Error('Discord application id indisponível; não registrei /play.');
+    throw new Error('Discord application id indisponível; não registrei os comandos.');
   }
 
   const guilds = [];

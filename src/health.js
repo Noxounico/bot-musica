@@ -43,8 +43,8 @@ async function handleRequest(req, res) {
       'NoxMusic',
       `<h1>Já não precisas de login Spotify</h1>
        <p>O bot toca no Discord via YouTube. Não precisas de Premium, da app aberta, nem do scope <code>user-modify-playback-state</code>.</p>
-       <p>No Discord: entra num canal de voz e usa <code>/play</code> ou <code>/tocar</code> com o nome da música. Os botões ⏮ ▶/⏸ ⏭ controlam o bot, não o Spotify.</p>
-       <p>Comandos do NoxMusic: ${COMMAND_NAMES.map((name) => `<code>/${name}</code>`).join(' ')}</p>
+       <p>No Discord: entra num canal de voz e usa <code>!play</code> ou <code>!tocar</code> com o nome da música. Os botões ⏮ ▶/⏸ ⏭ controlam o bot, não o Spotify.</p>
+       <p>Comandos do NoxMusic: ${COMMAND_NAMES.map((name) => `<code>!${name}</code>`).join(' ')}</p>
        <p>Spotify Search (arte e título): ${searchReady ? 'Client ID/Secret ok' : 'opcional — o bot toca na mesma sem isto'}.</p>`,
     ));
     return;
