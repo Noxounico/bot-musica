@@ -15,7 +15,7 @@ function guildMap(guildId) {
 function create(guildId, name) {
   const label = String(name || '').trim();
   if (!label) {
-    throw new Error('Diz o nome da playlist. Exemplo: `/playlist criar festa`');
+    throw new Error('Diz o nome da playlist. Exemplo: `!playlist criar festa`');
   }
   const playlists = guildMap(guildId);
   const key = normalizeName(label);
@@ -27,7 +27,7 @@ function create(guildId, name) {
 
 function add(guildId, name, track) {
   if (!track) {
-    throw new Error('Não há música para adicionar. Toca uma ou usa `/playlist add nome música`.');
+    throw new Error('Não há música para adicionar. Toca uma ou usa `!playlist add nome música`.');
   }
   const playlist = create(guildId, name);
   playlist.tracks.push({ ...track });

@@ -82,7 +82,7 @@ class SpotifyMirrorSync {
   panelContent() {
     const state = this.currentState();
     if (!state) {
-      return 'NoxMusic · usa `/play` para começar';
+      return 'NoxMusic · usa `!play` para começar';
     }
     const label = state.isPlaying ? 'A tocar' : 'Em pausa';
     return `${label} **${state.artists} — ${state.title}**`;
@@ -160,7 +160,7 @@ class SpotifyMirrorSync {
       const meta = await fetchOEmbed(youtubeId);
       if (!meta) {
         throw new Error(
-          'Esse link do YouTube não é válido ou o vídeo está indisponível. Usa `/play` com o nome da música, por exemplo `/play TA PEDINDO TOMA`.',
+          'Esse link do YouTube não é válido ou o vídeo está indisponível. Usa `!play` com o nome da música, por exemplo `!play TA PEDINDO TOMA`.',
         );
       }
       const spotify = this.spotify.enabled() && typeof this.spotify.searchTrack === 'function'
@@ -247,7 +247,7 @@ class SpotifyMirrorSync {
   async showClip(channel) {
     const url = await resolveClipUrl(this.current);
     if (!url) {
-      throw new Error('Não encontrei o clipe no YouTube. Tenta `/play` com o nome da música.');
+      throw new Error('Não encontrei o clipe no YouTube. Tenta `!play` com o nome da música.');
     }
     if (this.current) {
       this.current.youtubeUrl = url;
@@ -343,7 +343,7 @@ class SpotifyMirrorSync {
 
     const first = this.suggestions.shift();
     if (!first) {
-      throw new Error('Sem sugestões ainda. Usa `/play` com o nome da música.');
+      throw new Error('Sem sugestões ainda. Usa `!play` com o nome da música.');
     }
 
     await this.startTrack(first);
@@ -377,7 +377,7 @@ class SpotifyMirrorSync {
   saveSessionPlaylist() {
     const tracks = [this.current, ...this.queue].filter(Boolean);
     if (!tracks.length) {
-      throw new Error('Não há músicas para guardar. Usa /play primeiro.');
+      throw new Error('Não há músicas para guardar. Usa !play primeiro.');
     }
     const playlist = playlists.snapshot(this.guildId, 'sessao', tracks);
     return playlist;
@@ -386,7 +386,7 @@ class SpotifyMirrorSync {
   async playPlaylist(name) {
     const playlist = playlists.get(this.guildId, name);
     if (!playlist || !playlist.tracks.length) {
-      throw new Error(`A playlist **${name}** está vazia. Usa \`/playlist add ${name}\`.`);
+      throw new Error(`A playlist **${name}** está vazia. Usa \`!playlist add ${name}\`.`);
     }
     const [first, ...rest] = playlist.tracks.map((track) => ({ ...track }));
     this.queue = rest;
@@ -396,7 +396,7 @@ class SpotifyMirrorSync {
 
   pause() {
     if (!this.current) {
-      throw new Error('Não há nada a tocar. Usa /play.');
+      throw new Error('Não há nada a tocar. Usa !play.');
     }
     this.pausedAt = Date.now() - this.startedAt;
     this.player.pause();
@@ -405,7 +405,7 @@ class SpotifyMirrorSync {
 
   resume() {
     if (!this.current) {
-      throw new Error('Não há nada a tocar. Usa /play.');
+      throw new Error('Não há nada a tocar. Usa !play.');
     }
     this.startedAt = Date.now() - this.pausedAt;
     this.player.resume();

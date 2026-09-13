@@ -127,7 +127,7 @@ test('empty next clears playback without requiring Spotify', async () => {
   assert.equal(player.stoppedQuiet, 1);
 });
 
-test('panel copy tells the user to /play without Premium or an open Spotify app', () => {
+test('panel copy tells the user to !play without Premium or an open Spotify app', () => {
   const payload = buildPanel({
     account: { displayName: 'Nox' },
     spotify: null,
@@ -138,10 +138,11 @@ test('panel copy tells the user to /play without Premium or an open Spotify app'
   });
   const description = payload.embeds[0].data.description;
   const footer = payload.embeds[0].data.footer.text;
-  assert.match(description, /\/play/);
+  assert.match(description, /!play/);
+  assert.doesNotMatch(description, /`\/play`/);
   assert.match(description, /não precisas do Spotify aberto nem de Premium/i);
   assert.match(description, /70%/);
-  assert.match(footer, /\/play/);
+  assert.match(footer, /!play/);
   assert.match(footer, /avatar de quem controla ao lado/);
   assert.deepEqual(
     payload.components[0].components.map((button) => button.data.custom_id),

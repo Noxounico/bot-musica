@@ -62,7 +62,7 @@ function buildPanel({
     .setFooter({
       text: playing
         ? 'A tocar no Discord · sugestões seguem sozinhas · sem Premium'
-        : (spotify ? 'Em pausa' : '▶ toca sugestões · /play para escolher · avatar de quem controla ao lado'),
+        : (spotify ? 'Em pausa' : '▶ toca sugestões · !play para escolher · avatar de quem controla ao lado'),
     });
 
   const links = [];
@@ -78,7 +78,7 @@ function buildPanel({
       `👤 Quem manda: **${controllerName}**`,
       spotify
         ? `**${spotify.artists}**`
-        : 'Usa `/play` ou `/add` — nome, link Spotify ou YouTube. Não precisas do Spotify aberto nem de Premium. ▶ no painel toca as sugestões sozinhas.',
+        : 'Usa `!play` ou `!add` — nome, link Spotify ou YouTube. Não precisas do Spotify aberto nem de Premium. ▶ no painel toca as sugestões sozinhas.',
       links.length ? links.join('  ·  ') : null,
       spotify
         ? `\`${formatClock(spotify.progressMs)}\` ${progressBar(spotify.progressMs, spotify.durationMs)} \`${formatClock(spotify.durationMs)}\``
@@ -107,7 +107,7 @@ function buildPanel({
   ));
   embed.addFields({
     name: queueLength ? `📋 Fila · ${queueLength}` : '📋 Fila',
-    value: queueLines.join('\n').slice(0, 1024) || 'Vazia. `/add música` ou escolhe uma sugestão.',
+    value: queueLines.join('\n').slice(0, 1024) || 'Vazia. `!add música` ou escolhe uma sugestão.',
     inline: false,
   });
 
