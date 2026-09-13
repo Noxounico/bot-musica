@@ -151,6 +151,22 @@ test('panel copy tells the user to !play without Premium or an open Spotify app'
   );
 });
 
+test('panel copy points to Tocar and mention when chat cannot be read', () => {
+  const payload = buildPanel({
+    account: { displayName: 'Nox' },
+    spotify: null,
+    lastError: null,
+    channelName: 'Geral',
+    canReadChat: false,
+  });
+  const description = payload.embeds[0].data.description;
+  const footer = payload.embeds[0].data.footer.text;
+  assert.match(description, /@NoxMusic play mtg ficar legal/);
+  assert.match(description, /esconde `!play`/);
+  assert.doesNotMatch(description, /escreve `!play/);
+  assert.match(footer, /@NoxMusic play/);
+});
+
 test('changing track edits the same panel message immediately', async () => {
   const { sync, player } = session();
   const edits = [];

@@ -32,6 +32,7 @@ class SpotifyMirrorSync {
     this.watchdog = null;
     this.progressTimer = null;
     this.radio = true;
+    this.canReadChat = true;
 
     this.player.onIdle = () => {
       this.next({ fromIdle: true }).catch((error) => {
@@ -86,7 +87,9 @@ class SpotifyMirrorSync {
   panelContent() {
     const state = this.currentState();
     if (!state) {
-      return 'NoxMusic · usa `!play` para começar';
+      return this.canReadChat
+        ? 'NoxMusic · usa `!play` para começar'
+        : 'NoxMusic · clica **Tocar** ou menciona-me para começar';
     }
     const label = state.isPlaying ? 'A tocar' : 'Em pausa';
     return `${label} **${state.artists} — ${state.title}**`;
@@ -117,6 +120,7 @@ class SpotifyMirrorSync {
       volume: this.player.getVolumePercent ? this.player.getVolumePercent() : 100,
       playlists: this.guildId ? playlists.list(this.guildId) : [],
       radio: this.radio,
+      canReadChat: this.canReadChat,
     };
   }
 
